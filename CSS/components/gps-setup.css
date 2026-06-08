@@ -41,6 +41,7 @@
   flex-direction: column;
   gap: 12px;
   overflow: hidden;
+  font-size: 13px;
 }
 
 .gps-page h3,
@@ -54,7 +55,6 @@
 .gps-top-status,
 .gps-config-card,
 .gps-side-rail,
-.gps-footer,
 .gps-instance-card,
 .gps-rail-card {
   background:
@@ -66,33 +66,19 @@
     0 12px 30px rgba(0, 0, 0, 0.24);
 }
 
-.gps-header,
-.gps-top-status,
-.gps-footer {
-  flex-shrink: 0;
+.gps-config-card-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .gps-header {
+  flex-shrink: 0;
   padding: 14px 16px;
 }
 
 .gps-header-copy {
   min-width: 0;
-}
-
-.gps-breadcrumb {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  color: var(--gps-muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin-bottom: 10px;
-}
-
-.gps-breadcrumb-sep {
-  opacity: 0.45;
 }
 
 .gps-title-row {
@@ -175,12 +161,12 @@
 }
 
 .gps-top-status {
-  padding: 12px;
+  padding: 7px 10px;
 }
 
 .gps-status-grid {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
@@ -190,26 +176,33 @@
 
 .gps-status-pill {
   min-width: 0;
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: linear-gradient(180deg, rgba(14, 21, 30, 0.9), rgba(11, 15, 22, 0.92));
 }
 
 .gps-status-pill--cta {
   display: grid;
-  gap: 5px;
+  gap: 3px;
+}
+
+.gps-status-pill--cta .gps-inline-link {
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .gps-status-label {
   display: block;
   font-size: 10px;
+  line-height: 1.2;
   color: var(--gps-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
 .gps-status-value {
-  font-size: 16px;
+  font-size: 13px;
+  line-height: 1.2;
   color: #edf5fb;
   overflow-wrap: anywhere;
 }
@@ -262,13 +255,49 @@
 .gps-main-layout,
 .rtk-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) 280px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(220px, 260px) minmax(220px, 260px);
+  grid-template-rows: auto;
   gap: 12px;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
   align-content: start;
+  align-items: stretch;
+}
+
+.gps-instance-grid {
+  grid-column: 1 / 3;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gps-instance-primary-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.gps-instance-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.gps-instance-param-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 
 .gps-main-column,
@@ -276,12 +305,6 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.gps-instance-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -318,77 +341,126 @@
 .gps-instance-head {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: nowrap;
 }
 
 .gps-instance-title {
-  display: grid;
-  gap: 5px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .gps-instance-eyebrow {
   font-size: 10px;
+  line-height: 1.2;
   color: var(--gps-muted);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
 
+.gps-instance-card[data-gps-instance="0"] .gps-instance-eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #b8c8dc;
+}
+
 .gps-instance-name {
   font-size: 18px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .gps-instance-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+
+.gps-instance-meta .gps-inline-tag {
+  padding: 5px 10px;
+  font-size: 12px;
 }
 
 .gps-inline-tag {
   padding: 4px 8px;
-  font-size: 10px;
+  font-size: 11px;
   color: #c8d6e6;
   background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+  border: 1px solid rgba(108, 124, 147, 0.22);
 }
 
 .gps-head-right {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 6px;
   align-items: flex-end;
+  min-width: 132px;
+  min-height: 100%;
+  flex-shrink: 0;
+}
+
+.gps-instance-dop {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+
+.gps-instance-dop .gps-precision-band {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 38px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.gps-instance-dop .gps-precision-label {
+  font-size: 10px;
+}
+
+.gps-instance-dop .gps-precision-track {
+  height: 7px;
+}
+
+.gps-instance-dop .gps-precision-fill {
+  transition: width 0.35s ease;
+}
+
+.gps-instance-dop strong {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
 }
 
 .gps-fix-badge {
-  padding: 6px 10px;
-  font-size: 11px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.2;
   font-weight: 700;
   text-transform: uppercase;
   background: rgba(255, 255, 255, 0.03);
-}
-
-.gps-signal-block {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-}
-
-.gps-signal-bar {
-  width: 6px;
   border-radius: 999px;
-  background: rgba(102, 116, 138, 0.42);
-}
-
-.gps-signal-bar.is-on {
-  background: linear-gradient(180deg, rgba(72, 184, 216, 0.8), rgba(53, 212, 138, 0.92));
-  box-shadow: 0 0 10px rgba(72, 184, 216, 0.2);
+  border: 1px solid rgba(108, 124, 147, 0.22);
+  white-space: nowrap;
 }
 
 .gps-instance-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  grid-template-columns: minmax(190px, 0.72fr) minmax(0, 1.28fr);
   gap: 14px;
+  align-items: stretch;
+}
+
+.gps-instance-primary-col .gps-real-grid {
+  flex: 1 1 auto;
 }
 
 .gps-instance-empty {
@@ -420,13 +492,113 @@
 
 .gps-real-grid {
   display: grid;
+  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(108, 124, 147, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 0.35s ease,
+    box-shadow 0.35s ease,
+    background 0.35s ease;
+}
+
+.gps-instance-card.is-good .gps-real-grid {
+  border-color: rgba(53, 212, 138, 0.35);
+  background:
+    linear-gradient(180deg, rgba(53, 212, 138, 0.1), rgba(53, 212, 138, 0.02)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(53, 212, 138, 0.14),
+    0 8px 18px rgba(53, 212, 138, 0.1);
+}
+
+.gps-instance-card.is-warn .gps-real-grid {
+  border-color: rgba(243, 178, 63, 0.4);
+  background:
+    linear-gradient(180deg, rgba(243, 178, 63, 0.1), rgba(243, 178, 63, 0.02)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(243, 178, 63, 0.12),
+    0 8px 18px rgba(243, 178, 63, 0.08);
+}
+
+.gps-instance-card.is-bad .gps-real-grid {
+  border-color: rgba(242, 104, 104, 0.42);
+  background:
+    linear-gradient(180deg, rgba(242, 104, 104, 0.1), rgba(242, 104, 104, 0.02)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(242, 104, 104, 0.12),
+    0 8px 18px rgba(242, 104, 104, 0.08);
+}
+
+.gps-real-kv-list {
+  display: grid;
   gap: 8px;
 }
 
-.gps-kv {
+.gps-rx-constellation {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(108, 124, 147, 0.16);
+}
+
+.gps-rx-constellation-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c8d6e6;
+  letter-spacing: 0.02em;
+}
+
+.gps-rx-constellation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gps-rx-constellation-chip {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  border: 1px solid rgba(120, 135, 156, 0.26);
+  color: #8c98ab;
+  background: rgba(14, 21, 30, 0.55);
+  box-sizing: border-box;
+}
+
+.gps-rx-constellation-chip.is-receiving {
+  border-color: rgba(242, 104, 104, 0.55);
+  color: #ffd0d0;
+  background: rgba(242, 104, 104, 0.16);
+  box-shadow: 0 0 10px rgba(242, 104, 104, 0.12);
+}
+
+.gps-rx-constellation-note {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.gps-kv {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
   padding-bottom: 7px;
   border-bottom: 1px solid rgba(108, 124, 147, 0.12);
 }
@@ -438,18 +610,30 @@
 
 .gps-kv span:first-child {
   color: var(--gps-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .gps-kv strong {
   text-align: right;
-  font-size: 12px;
-  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.gps-real-grid .gps-kv:nth-child(2) strong {
+  font-size: 11px;
+  letter-spacing: -0.01em;
 }
 
 .gps-fields-grid {
   display: grid;
   gap: 10px;
+  min-width: 0;
+}
+
+.gps-fields-grid .gps-field select,
+.gps-fields-grid .gps-field input {
+  width: 100%;
 }
 
 .gps-field {
@@ -457,9 +641,40 @@
   gap: 6px;
 }
 
-.gps-field > span {
+.gps-field > span:not(.gps-field-label):not(.gps-field-label-zh):not(.gps-field-label-en),
+.gps-field > .gps-field-label {
   color: var(--gps-muted);
-  font-size: 11px;
+  font-size: 13px;
+}
+
+.gps-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.gps-field-label-zh {
+  color: var(--gps-muted);
+  font-size: 13px;
+}
+
+.gps-field-label-en {
+  font-size: 10px;
+  color: rgba(140, 152, 171, 0.78);
+  letter-spacing: 0.02em;
+}
+
+.gps-option-card-head .gps-field-label-zh {
+  color: #c8d6e6;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gps-option-card-head .gps-field-label-en {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(168, 182, 204, 0.72);
 }
 
 .gps-field select,
@@ -472,6 +687,7 @@
   border: 1px solid rgba(108, 124, 147, 0.28);
   border-radius: 8px;
   font-family: var(--font-mono);
+  font-size: 13px;
 }
 
 .gps-field select.gps-field-dirty,
@@ -480,59 +696,51 @@
   box-shadow: 0 0 0 2px rgba(243, 178, 63, 0.1);
 }
 
-.gps-instance-foot {
-  display: grid;
-  gap: 10px;
-}
-
-.gps-instance-foot .gps-card-head {
-  margin-bottom: 0;
-}
-
-.gps-constellation-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.gps-constellation-chip {
-  padding: 6px 8px;
-  border-radius: 999px;
-  font-size: 10px;
-  border: 1px solid rgba(120, 135, 156, 0.26);
-  color: #d8e7f5;
-}
-
-.gps-constellation-chip.is-active {
-  border-color: rgba(72, 184, 216, 0.45);
-  color: #ddf7ff;
-  background: rgba(72, 184, 216, 0.12);
-}
-
 .gps-card-head,
 .gps-rail-head {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  align-items: flex-start;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+
+.gps-card-head {
+  align-items: flex-start;
+}
+
+.gps-rail-head {
+  align-items: center;
+}
+
+.gps-rail-head .gps-card-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  min-height: 18px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 5px;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .gps-card-head h4,
 .gps-rail-head h4 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
 }
 
-.gps-card-head p {
-  margin: 4px 0 0;
+.gps-rail-head h4 {
+  line-height: 18px;
 }
 
-.gps-lower-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.gps-card-head p,
+.gps-page .gps-note,
+.gps-page .muted {
+  font-size: 12px;
 }
 
 .gps-config-card {
@@ -549,34 +757,286 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.gps-config-fields--rail {
+  grid-template-columns: 1fr;
+}
+
+.gps-side-rail-scroll .gps-config-fields--rail > label.gps-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.gps-side-rail-scroll .gps-config-fields--rail > label.gps-field > .gps-field-label {
+  flex: 0 0 auto;
+  white-space: normal;
+  min-width: 0;
+}
+
+.gps-side-rail-scroll .gps-config-fields--rail > label.gps-field input,
+.gps-side-rail-scroll .gps-config-fields--rail > label.gps-field select {
+  width: 50%;
+  flex: 0 0 50%;
+  min-width: 0;
+}
+
 .gps-check-grid {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
+.gps-option-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(108, 124, 147, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.gps-option-card-head {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c8d6e6;
+  letter-spacing: 0.02em;
+}
+
+.gps-option-card .gps-check-grid {
+  gap: 8px;
+}
+
+.gps-card-head p {
+  margin: 4px 0 0;
+}
+
 .gps-check-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 8px;
-  border: 1px solid rgba(108, 124, 147, 0.24);
+  padding: 6px 10px;
+  border: 1px solid rgba(108, 124, 147, 0.28);
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   color: #ced8e7;
+  background: rgba(14, 21, 30, 0.72);
 }
 
 .gps-check-chip input {
   margin: 0;
 }
 
+.gps-fields-grid .gps-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(88px, 1fr));
+  grid-auto-rows: minmax(28px, auto);
+  gap: 6px;
+}
+
+.gps-fields-grid .gps-check-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  height: auto;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.gps-fields-grid .gps-check-chip:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.gps-fields-grid .gps-check-chip span {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: inherit;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.gps-fields-grid .gps-check-chip input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  flex-shrink: 0;
+}
+
+.gps-side-rail,
+.gps-side-rail--secondary {
+  grid-row: 1;
+  align-self: stretch;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .gps-side-rail {
-  padding: 14px;
+  grid-column: 3;
+}
+
+.gps-side-rail--secondary {
+  grid-column: 4;
+}
+
+.gps-side-rail-scroll {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.gps-side-rail-scroll .gps-rail-head {
+  margin-bottom: 8px;
+}
+
+.gps-side-rail-scroll .gps-note {
+  margin: 0 0 10px;
+}
+
+.gps-side-rail-scroll .gps-option-card--rail {
+  padding: 8px 10px;
+}
+
+.gps-side-rail-scroll .gps-check-grid--rail {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.gps-side-rail-scroll .gps-check-grid--rail .gps-check-chip {
+  justify-content: flex-start;
+  border-radius: 8px;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.gps-check-grid--blend-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gps-check-grid--blend-cols .gps-check-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(108, 124, 147, 0.24);
+  background: rgba(14, 21, 30, 0.72);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.gps-check-grid--blend-cols .gps-check-chip span {
+  display: block;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+}
+
+.gps-check-grid--blend-cols .gps-check-chip input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.gps-check-grid--blend-cols .gps-check-chip:has(input:checked) {
+  border-color: rgba(72, 184, 216, 0.42);
+  background: rgba(72, 184, 216, 0.1);
+}
+
+.gps-check-grid--driver-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.gps-check-grid--driver-cards .gps-check-chip {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(108, 124, 147, 0.24);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 6px 14px rgba(0, 0, 0, 0.16);
+  cursor: pointer;
+  white-space: normal;
+  line-height: 1.35;
+  box-sizing: border-box;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.gps-check-grid--driver-cards .gps-check-chip:has(input:checked) {
+  border-color: rgba(72, 184, 216, 0.42);
+  background:
+    linear-gradient(180deg, rgba(72, 184, 216, 0.1), rgba(72, 184, 216, 0.03)),
+    linear-gradient(180deg, rgba(18, 25, 34, 0.96), rgba(10, 15, 22, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(72, 184, 216, 0.12),
+    0 0 0 1px rgba(72, 184, 216, 0.08),
+    0 6px 14px rgba(72, 184, 216, 0.1);
+}
+
+.gps-check-grid--driver-cards .gps-check-chip span {
+  flex: 1 1 auto;
   min-width: 0;
-  align-self: start;
+  font-size: 12px;
+}
+
+.gps-check-grid--driver-cards .gps-check-chip input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  flex: 0 0 12px;
+  flex-shrink: 0;
+}
+
+.gps-config-card-foot--rail {
+  justify-content: stretch;
+  padding-top: 8px;
+}
+
+.gps-config-card-foot--rail .gps-inline-link--boxed {
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .gps-rail-card {
@@ -588,7 +1048,7 @@
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  font-size: 13px;
   padding-bottom: 8px;
   margin-bottom: 8px;
   border-bottom: 1px solid rgba(108, 124, 147, 0.12);
@@ -612,7 +1072,7 @@
 
 .gps-precision-label {
   color: var(--gps-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .gps-precision-track {
@@ -627,62 +1087,15 @@
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #2fe07d, #49b5dd);
+  transition: width 0.35s ease;
 }
 
 .gps-precision-fill--secondary {
   background: linear-gradient(90deg, #f3b23f, #f26868);
 }
 
-.gps-alert-list {
-  display: grid;
-  gap: 8px;
-}
-
-.gps-alert-item {
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(108, 124, 147, 0.14);
-}
-
-.gps-alert-item.is-bad {
-  border-color: rgba(242, 104, 104, 0.3);
-  color: #ffd0d0;
-}
-
-.gps-alert-item.is-warn {
-  border-color: rgba(243, 178, 63, 0.3);
-  color: #ffe3b4;
-}
-
 .gps-note {
   line-height: 1.6;
-}
-
-.gps-footer {
-  padding: 12px 14px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-}
-
-.gps-footer-copy strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
-.gps-footer-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.gps-write-status {
-  grid-column: 1 / -1;
-  margin: 0;
 }
 
 .gps-write-status.is-ok {
@@ -721,32 +1134,59 @@
   display: block;
 }
 
+@media (max-width: 1480px) {
+  .gps-main-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(200px, 240px) minmax(200px, 240px);
+  }
+}
+
 @media (max-width: 1380px) {
   .gps-main-layout,
   .rtk-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto;
   }
 
-  .gps-lower-grid {
-    grid-template-columns: 1fr;
+  .gps-instance-grid {
+    grid-column: 1 / -1;
+  }
+
+  .gps-side-rail,
+  .gps-side-rail--secondary {
+    grid-row: auto;
+  }
+
+  .gps-side-rail {
+    grid-column: 1;
+  }
+
+  .gps-side-rail--secondary {
+    grid-column: 2;
   }
 }
 
 @media (max-width: 1100px) {
+  .gps-main-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .gps-side-rail,
+  .gps-side-rail--secondary {
+    grid-column: 1;
+  }
+
   .gps-instance-grid,
   .gps-instance-body,
   .gps-config-fields--triple {
     grid-template-columns: 1fr;
   }
 
-  .gps-title-row,
-  .gps-footer {
+  .gps-title-row {
     grid-template-columns: 1fr;
     display: grid;
   }
 
-  .gps-header-tags,
-  .gps-footer-actions {
+  .gps-header-tags {
     justify-content: flex-start;
   }
 }

@@ -49,11 +49,14 @@
     6: { short: "TeraRangerTowerEvo", zh: "TeraRanger Evo", bus: "I2C" },
     7: { short: "LightwareSF40c", zh: "Lightware SF40c", bus: "CAN" },
     8: { short: "LightwareSF45B", zh: "Lightware SF45B", bus: "CAN" },
+    10: { short: "SITL", zh: "SITL 仿真", bus: "SITL" },
+    12: { short: "AirSimSITL", zh: "AirSim 仿真", bus: "SITL" },
+    13: { short: "CygbotD1", zh: "Cygbot D1", bus: "DroneCAN" },
     14: { short: "DroneCAN", zh: "DroneCAN 避障", bus: "DroneCAN" },
+    15: { short: "Scripting", zh: "Lua 脚本", bus: "脚本" },
     16: { short: "LD06", zh: "LD06 激光", bus: "串口" },
     17: { short: "MR72_CAN", zh: "MR72 毫米波", bus: "CAN" },
     18: { short: "HexsoonRadar", zh: "Hexsoon 毫米波雷达", bus: "串口/CAN" },
-    100: { short: "SITL", zh: "仿真", bus: "SITL" },
   };
 
   const BCN_TYPE_INFO = {
@@ -342,4 +345,5 @@
   window.rngfndBusHintForType = rngfndBusHint;
   window.battParamPrefix = battParamPrefix;
   window.battBusHintForMonitor = battBusHint;
+  window.PRX_TYPE_INFO = PRX_TYPE_INFO;
 })();

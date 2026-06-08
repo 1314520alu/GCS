@@ -745,6 +745,33 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
     };
   }
 
+  // OBSTACLE_DISTANCE (330)：邻近/雷达障碍物距离数组 → 雷达页实时视图
+  if (id === 330 && payload.length >= 153) {
+    const dv = mavlinkPayloadView(payload);
+    const increment = dv.getFloat32(153, true);
+    const inc = Number.isFinite(increment) && increment > 0 ? increment : 5;
+    const angleOffset = payload.length >= 169 ? dv.getFloat32(165, true) : 0;
+    const obstacles = [];
+    for (let i = 0; i < 72; i += 1) {
+      const offset = 9 + i * 2;
+      if (offset + 1 >= payload.length) break;
+      const cm = dv.getUint16(offset, true);
+      if (cm === 65535 || cm === 0) continue;
+      obstacles.push({
+        id: i + 1,
+        distance: cm / 100,
+        angle: angleOffset + i * inc,
+        velocity: 0,
+        type: "Proximity",
+        status: "Active",
+      });
+    }
+    window.radarTelemetry = {
+      obstacles,
+      lastUpdateMs: Date.now(),
+    };
+  }
+
   // HIGHRES_IMU: time_usec(8) + xacc,yacc,zacc(float) — 加速度 m/s²，换算为 g
   if (id === 105 && payload.length >= 20) {
     const dv = mavlinkPayloadView(payload);

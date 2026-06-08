@@ -33,20 +33,20 @@
 
   function sourceLabel(source) {
     if (source === "cors") return "CORS";
-    if (source === "moving") return "Moving Base";
-    return "No RTK";
+    if (source === "moving") return "移动基站";
+    return "无 RTK";
   }
 
   function injectLabel(status) {
-    if (status === "active") return "Injecting";
-    if (status === "standby") return "Standby";
-    return "Idle";
+    if (status === "active") return "注入中";
+    if (status === "standby") return "待命";
+    return "空闲";
   }
 
   function healthLabel(health) {
-    if (health === "good") return "Healthy";
-    if (health === "warn") return "Watch";
-    return "Offline";
+    if (health === "good") return "正常";
+    if (health === "warn") return "关注";
+    return "离线";
   }
 
   function healthClass(health) {
@@ -106,10 +106,10 @@
     });
 
     const summaryCopy = {
-      none: "RTK disabled. GPS receiver setup remains on the main GPS page.",
-      cors: "Network corrections are selected. Watch correction age and link latency.",
-      moving: "Moving baseline is selected. Watch base/rover binding and receiver health.",
-    }[state.activeSource] || "RTK disabled. GPS receiver setup remains on the main GPS page.";
+      none: "当前未启用 RTK。接收机配置仍在 GPS 主页面维护。",
+      cors: "已选择网络差分来源，请关注校正龄期与链路延迟。",
+      moving: "已选择移动基线，请关注基站/流动站绑定与接收机健康状态。",
+    }[state.activeSource] || "当前未启用 RTK。接收机配置仍在 GPS 主页面维护。";
 
     const summaryNode = el("rtk-source-summary");
     if (summaryNode) summaryNode.textContent = summaryCopy;
@@ -136,9 +136,9 @@
     if (injectSelect && injectSelect.dataset.ready !== "1") {
       injectSelect.dataset.ready = "1";
       injectSelect.innerHTML =
-        '<option value="0">Inject to GPS1</option>' +
-        '<option value="1">Inject to GPS2</option>' +
-        '<option value="127">Inject to all</option>';
+        '<option value="0">注入 GPS1</option>' +
+        '<option value="1">注入 GPS2</option>' +
+        '<option value="127">注入全部</option>';
       injectSelect.addEventListener("change", () => {
         const value = Number(injectSelect.value);
         if (Number.isFinite(value)) {
@@ -167,7 +167,7 @@
     telemetry.rtk.source = summary.source;
     telemetry.rtk.boundInstance = summary.boundInstance;
 
-    const ageText = Number.isFinite(summary.ageSec) ? (summary.ageSec + " s") : "--";
+    const ageText = Number.isFinite(summary.ageSec) ? (summary.ageSec + " 秒") : "--";
     const latencyText = Number.isFinite(summary.latencyMs) ? (summary.latencyMs + " ms") : "--";
     const bindLabel = summary.boundInstance === 1 ? "GPS2" : "GPS1";
 
@@ -198,7 +198,7 @@
 
     if (!fcConnected()) {
       if (status) {
-        status.textContent = "Flight controller is disconnected. RTK write is blocked.";
+        status.textContent = "飞控未连接，无法写入 RTK 参数。";
         status.className = "muted gps-write-status is-bad";
       }
       return;
@@ -227,7 +227,7 @@
     syncSummary();
 
     if (status) {
-      status.textContent = "RTK card wrote " + sent + "/" + keys.length + " params.";
+      status.textContent = "RTK 卡片已写入 " + sent + "/" + keys.length + " 个参数。";
       status.className = "muted gps-write-status " + (sent === keys.length ? "is-ok" : "is-warn");
     }
   }

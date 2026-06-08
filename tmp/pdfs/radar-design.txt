@@ -1,0 +1,206 @@
+Pages: 8
+
+=== PAGE 1 ===
+Radar Configuration Dashboard
+Overview
+Design a modern aviation-style Radar Configuration Dashboard for an ArduPilot Ground Control Station.
+The page should use a professional UAV control station appearance inspired by:
+• DJI Pilot 2
+• QGroundControl
+• PX4 Station
+• Modern avionics displays
+Avoid Mission Planner style parameter tables.
+The UI must be card-based, clean, modern, and optimized for desktop use.
+Layout
+Use a responsive 2-column layout.
+Desktop:
+• Left Panel: 40%
+• Right Panel: 60%
+Structure:
+Header
+├── Device Status Card ├── Installation Card ├── Detection Settings Card
+Live Radar View
+├── Radar Visualization ├── Obstacle List
+Obstacle Avoidance Card
+Advanced Settings Card
+Theme
+Default:
+Dark Theme
+1
+
+=== PAGE 2 ===
+Background:
+111827
+Card Background:
+1F2937
+Border:
+374151
+Primary Color:
+3B82F6
+Success:
+22C55E
+Warning:
+F59E0B
+Error:
+EF4444
+Card Radius:
+12px
+Spacing:
+16px
+Header
+Display:
+Title: "Radar Configuration"
+2
+
+=== PAGE 3 ===
+Toolbar Buttons:
+• Read From Vehicle
+• Write To Vehicle
+• Refresh
+• Reset
+Show:
+Last Sync Time
+Connection Status
+Device Status Card
+Title:
+Radar Device
+Fields:
+Device Type (Dropdown)
+Options:
+• DroneCAN Radar
+• Benewake
+• NanoRadar
+• Ainstein
+• MR72
+• Custom
+Connection Type
+• DroneCAN
+• UART
+• UDP
+• TCP
+Device ID
+Firmware Version
+Status
+Online: Green Badge
+Offline: Red Badge
+3
+
+=== PAGE 4 ===
+Timeout: Orange Badge
+Installation Card
+Title:
+Installation
+Display aircraft top view.
+Allow user to select radar position:
+• Front
+• Rear
+• Left
+• Right
+• Up
+• Down
+• Front Left
+• Front Right
+• Rear Left
+• Rear Right
+Fields:
+Yaw Offset
+Pitch Offset
+Roll Offset
+Use number inputs with degree symbol.
+Detection Settings Card
+Title:
+Detection Settings
+Fields:
+Maximum Distance
+Slider: 1m - 200m
+Minimum Distance
+4
+
+=== PAGE 5 ===
+Slider: 0.1m - 10m
+Update Rate
+Slider: 1Hz - 100Hz
+Filter Level
+Dropdown:
+• Low
+• Medium
+• High
+Live Radar View
+Title:
+Live Radar
+This is the largest visual component.
+Display:
+Aircraft icon in center.
+Concentric range circles:
+5m 10m 20m 40m
+Obstacle points:
+Animated dots.
+Display:
+• Distance
+• Angle
+• Velocity
+Optional radar sweep animation.
+Show realtime refresh.
+Obstacle List
+Below radar visualization.
+5
+
+=== PAGE 6 ===
+Table Columns:
+ID
+Distance
+Angle
+Velocity
+Type
+Status
+Example:
+1 | 3.2m | 25° | 0m/s | Static | Active
+Support sorting.
+Obstacle Avoidance Card
+Title:
+Obstacle Avoidance
+Switches:
+Enable Avoidance
+Auto Detour
+Emergency Brake
+Obstacle Database
+Sliders:
+Safety Margin
+0.5m - 20m
+Brake Distance
+0.5m - 10m
+Display current values beside sliders.
+6
+
+=== PAGE 7 ===
+Advanced Settings
+Collapsed by default.
+Accordion component.
+Contains:
+• Raw Data Logging
+• Debug Mode
+• Tracking Mode
+• Noise Filter
+• Object Classification
+• Custom Parameters
+Responsiveness
+Desktop:
+2-column layout
+Tablet:
+1-column layout
+Mobile:
+Stack all cards vertically
+Visual Effects
+Smooth transitions
+Hover effects on cards
+Animated status indicators
+Animated radar sweep
+Glassmorphism optional
+Professional aerospace dashboard appearance
+Do not use bright consumer-style colors.
+7
+
+=== PAGE 8 ===
+Use engineering-grade visual design.
+8
+

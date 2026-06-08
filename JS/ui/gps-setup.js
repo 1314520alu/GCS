@@ -5,6 +5,15 @@
   const EPS = 1e-5;
   const TELEMETRY_STALE_MS = 5000;
 
+  function fieldLabel(zh, en) {
+    return (
+      '<span class="gps-field-label">' +
+        '<span class="gps-field-label-zh">' + zh + "</span>" +
+        '<span class="gps-field-label-en">' + en + "</span>" +
+      "</span>"
+    );
+  }
+
   const INSTANCE_KEYS = {
     0: [
       "GPS_TYPE",
@@ -42,6 +51,30 @@
     "GPS_NAVFILTER",
     "GPS_SAVE_CFG",
     "GPS_DRV_OPTIONS",
+  ];
+
+  // ArduPilot 4.6+ renamed several GPS params (GPS1_TYPE, GPS1_RATE_MS, …).
+  const PARAM_ALIASES = {
+    GPS_TYPE: ["GPS1_TYPE", "GPS_TYPE"],
+    GPS_TYPE2: ["GPS2_TYPE", "GPS_TYPE2"],
+    GPS_RATE_MS: ["GPS1_RATE_MS", "GPS_RATE_MS"],
+    GPS_RATE_MS2: ["GPS2_RATE_MS", "GPS_RATE_MS2"],
+    GPS_GNSS_MODE: ["GPS1_GNSS_MODE", "GPS_GNSS_MODE"],
+    GPS_GNSS_MODE2: ["GPS2_GNSS_MODE", "GPS_GNSS_MODE2"],
+    GPS_POS1_X: ["GPS1_POS_X", "GPS_POS1_X"],
+    GPS_POS1_Y: ["GPS1_POS_Y", "GPS_POS1_Y"],
+    GPS_POS1_Z: ["GPS1_POS_Z", "GPS_POS1_Z"],
+    GPS_POS2_X: ["GPS2_POS_X", "GPS_POS2_X"],
+    GPS_POS2_Y: ["GPS2_POS_Y", "GPS_POS2_Y"],
+    GPS_POS2_Z: ["GPS2_POS_Z", "GPS_POS2_Z"],
+  };
+
+  const ALL_PARAM_KEYS = [
+    ...INSTANCE_KEYS[0],
+    ...INSTANCE_KEYS[1],
+    ...OFFSET_KEYS,
+    ...BLEND_KEYS,
+    ...ADVANCED_KEYS,
   ];
 
   const DEFAULTS = {
@@ -93,16 +126,16 @@
   };
 
   const TYPE_OPTIONS = [
-    { value: 0, label: "Disabled" },
-    { value: 1, label: "Auto" },
+    { value: 0, label: "禁用" },
+    { value: 1, label: "自动" },
     { value: 2, label: "u-blox" },
     { value: 5, label: "NMEA" },
     { value: 9, label: "DroneCAN" },
-    { value: 17, label: "uBlox Base" },
-    { value: 18, label: "uBlox Rover" },
-    { value: 22, label: "DroneCAN Base" },
-    { value: 23, label: "DroneCAN Rover" },
-    { value: 26, label: "SBF Dual Antenna" },
+    { value: 17, label: "uBlox 基站" },
+    { value: 18, label: "uBlox 流动站" },
+    { value: 22, label: "DroneCAN 基站" },
+    { value: 23, label: "DroneCAN 流动站" },
+    { value: 26, label: "SBF 双天线" },
   ];
 
   const RATE_OPTIONS = [
@@ -113,23 +146,23 @@
   ];
 
   const AUTO_CONFIG_OPTIONS = [
-    { value: 0, label: "Disabled" },
-    { value: 1, label: "Enabled" },
-    { value: 2, label: "Enable incl CAN" },
-    { value: 3, label: "Clear custom cfg" },
+    { value: 0, label: "禁用" },
+    { value: 1, label: "启用" },
+    { value: 2, label: "启用含 CAN" },
+    { value: 3, label: "清除自定义配置" },
   ];
 
   const SBAS_OPTIONS = [
-    { value: 0, label: "Disabled" },
-    { value: 1, label: "Enabled" },
-    { value: 2, label: "Keep receiver" },
+    { value: 0, label: "禁用" },
+    { value: 1, label: "启用" },
+    { value: 2, label: "保持接收机设置" },
   ];
 
   const AUTO_SWITCH_OPTIONS = [
-    { value: 0, label: "Use primary" },
-    { value: 1, label: "Use best" },
-    { value: 2, label: "Blend" },
-    { value: 4, label: "Prefer primary" },
+    { value: 0, label: "使用主 GPS" },
+    { value: 1, label: "使用最佳" },
+    { value: 2, label: "融合" },
+    { value: 4, label: "优先主 GPS" },
   ];
 
   const PRIMARY_OPTIONS = [
@@ -138,26 +171,26 @@
   ];
 
   const INJECT_OPTIONS = [
-    { value: 0, label: "Inject to GPS1" },
-    { value: 1, label: "Inject to GPS2" },
-    { value: 127, label: "Inject to all" },
+    { value: 0, label: "注入 GPS1" },
+    { value: 1, label: "注入 GPS2" },
+    { value: 127, label: "注入全部" },
   ];
 
   const SAVE_CFG_OPTIONS = [
-    { value: 0, label: "Do not save" },
-    { value: 1, label: "Save now" },
-    { value: 2, label: "Auto" },
+    { value: 0, label: "不保存" },
+    { value: 1, label: "立即保存" },
+    { value: 2, label: "自动" },
   ];
 
   const NAVFILTER_OPTIONS = [
-    { value: 8, label: "Portable" },
-    { value: 4, label: "Stationary" },
-    { value: 5, label: "Pedestrian" },
-    { value: 6, label: "Automotive" },
-    { value: 7, label: "Sea" },
-    { value: 9, label: "Airborne 1G" },
-    { value: 10, label: "Airborne 2G" },
-    { value: 11, label: "Airborne 4G" },
+    { value: 8, label: "便携" },
+    { value: 4, label: "静止" },
+    { value: 5, label: "步行" },
+    { value: 6, label: "车载" },
+    { value: 7, label: "海上" },
+    { value: 9, label: "机载 1G" },
+    { value: 10, label: "机载 2G" },
+    { value: 11, label: "机载 4G" },
   ];
 
   const CONSTELLATIONS = [
@@ -171,33 +204,35 @@
   ];
 
   const BLEND_MASK_OPTIONS = [
-    { bit: 0, label: "Horizontal" },
-    { bit: 1, label: "Vertical" },
-    { bit: 2, label: "Velocity" },
+    { bit: 0, label: "水平" },
+    { bit: 1, label: "垂直" },
+    { bit: 2, label: "速度" },
   ];
 
   const DRV_OPTIONS = [
-    { bit: 0, label: "UART2 Moving Base" },
-    { bit: 1, label: "SBF Base Yaw" },
-    { bit: 2, label: "115200 Baud" },
-    { bit: 3, label: "Dedicated CAN Baseline" },
-    { bit: 4, label: "Ellipsoid Altitude" },
+    { bit: 0, label: "UART2 移动基站" },
+    { bit: 1, label: "SBF 基站航向" },
+    { bit: 2, label: "115200 波特率" },
+    { bit: 3, label: "专用 CAN 基线" },
+    { bit: 4, label: "椭球高度" },
   ];
 
   const FIX_LABELS = {
-    0: "No GPS",
-    1: "No Fix",
-    2: "2D Fix",
-    3: "3D Fix",
-    4: "DGPS",
-    5: "RTK Float",
-    6: "RTK Fixed",
+    0: "无 GPS",
+    1: "无定位",
+    2: "2D 定位",
+    3: "3D 定位",
+    4: "差分 GPS",
+    5: "RTK 浮点",
+    6: "RTK 固定",
   };
 
   const state = {
     mounted: false,
     panelActive: false,
     drafts: new Map(),
+    probeGeneration: 0,
+    instanceGridSignature: "",
   };
 
   function el(id) {
@@ -217,11 +252,42 @@
     return Math.abs(Number(a) - Number(b)) < EPS;
   }
 
+  function resolveParamKey(key) {
+    const aliases = PARAM_ALIASES[key];
+    const params = getParamsMap();
+    if (aliases && params) {
+      for (const name of aliases) {
+        if (params.has(name)) return name;
+      }
+      return aliases[0];
+    }
+    return key;
+  }
+
   function getParamNum(key) {
     const params = getParamsMap();
-    if (!params || !params.has(key)) return null;
-    const numeric = Number(params.get(key));
-    return Number.isFinite(numeric) ? numeric : null;
+    if (!params) return null;
+    const aliases = PARAM_ALIASES[key] || [key];
+    for (const name of aliases) {
+      if (!params.has(name)) continue;
+      const numeric = Number(params.get(name));
+      if (Number.isFinite(numeric)) return numeric;
+    }
+    return null;
+  }
+
+  function reconcileDraftsWithParams() {
+    let changed = false;
+    ALL_PARAM_KEYS.forEach((key) => {
+      if (!state.drafts.has(key)) return;
+      const live = getParamNum(key);
+      if (live == null) return;
+      if (valuesClose(state.drafts.get(key), live)) {
+        state.drafts.delete(key);
+        changed = true;
+      }
+    });
+    if (changed) persistDrafts();
   }
 
   function getDraftValue(key) {
@@ -290,9 +356,9 @@
   function formatAge(ms) {
     if (!Number.isFinite(ms) || ms <= 0) return "--";
     const ageMs = Math.max(0, Date.now() - ms);
-    if (ageMs < 1000) return "live";
-    if (ageMs < 60000) return Math.round(ageMs / 1000) + "s ago";
-    return Math.round(ageMs / 60000) + "m ago";
+    if (ageMs < 1000) return "实时";
+    if (ageMs < 60000) return Math.round(ageMs / 1000) + " 秒前";
+    return Math.round(ageMs / 60000) + " 分钟前";
   }
 
   function optionLabel(options, value, fallback) {
@@ -308,29 +374,88 @@
     return options.reduce((sum, option) => sum + (1 << option.bit), 0);
   }
 
-  function buildSignalBars(sats) {
-    const count = Math.max(0, Math.min(8, Math.round((Number(sats) || 0) / 4)));
-    return Array.from({ length: 8 }, (_, index) => {
-      const active = index < count ? " is-on" : "";
-      return '<span class="gps-signal-bar' + active + '" style="height:' + (8 + index * 3) + 'px"></span>';
-    }).join("");
+  function dopBarWidth(dop) {
+    return Number.isFinite(dop) ? Math.max(0, Math.min(100, ((4 - Math.min(dop, 4)) / 4) * 100)) : 0;
   }
 
-  function buildConstellationChips(mask) {
+  function buildInstanceDopHtml(instance) {
+    const hdopW = dopBarWidth(instance.eph);
+    const vdopW = dopBarWidth(instance.epv);
+    const hdopText = Number.isFinite(instance.eph) ? instance.eph.toFixed(2) : "--";
+    const vdopText = Number.isFinite(instance.epv) ? instance.epv.toFixed(2) : "--";
+    return (
+      '<div class="gps-instance-dop">' +
+        '<div class="gps-precision-band">' +
+          '<span class="gps-precision-label">HDOP</span>' +
+          '<div class="gps-precision-track">' +
+            '<span class="gps-instance-hdop-bar gps-precision-fill" style="width:' + hdopW + '%"></span>' +
+          "</div>" +
+          '<strong class="gps-instance-hdop-val">' + hdopText + "</strong>" +
+        "</div>" +
+        '<div class="gps-precision-band">' +
+          '<span class="gps-precision-label">VDOP</span>' +
+          '<div class="gps-precision-track">' +
+            '<span class="gps-instance-vdop-bar gps-precision-fill gps-precision-fill--secondary" style="width:' + vdopW + '%"></span>' +
+          "</div>" +
+          '<strong class="gps-instance-vdop-val">' + vdopText + "</strong>" +
+        "</div>" +
+      "</div>"
+    );
+  }
+
+  function updateInstanceDop(card, instance) {
+    const hdopBar = card.querySelector(".gps-instance-hdop-bar");
+    const vdopBar = card.querySelector(".gps-instance-vdop-bar");
+    const hdopVal = card.querySelector(".gps-instance-hdop-val");
+    const vdopVal = card.querySelector(".gps-instance-vdop-val");
+    if (hdopBar) hdopBar.style.width = dopBarWidth(instance.eph) + "%";
+    if (vdopBar) vdopBar.style.width = dopBarWidth(instance.epv) + "%";
+    if (hdopVal) hdopVal.textContent = Number.isFinite(instance.eph) ? instance.eph.toFixed(2) : "--";
+    if (vdopVal) vdopVal.textContent = Number.isFinite(instance.epv) ? instance.epv.toFixed(2) : "--";
+  }
+
+  function getConstellationRxMask(instance) {
+    const item = (getTelemetryRoot().instances || [])[instance.index] || {};
+    if (Number.isFinite(item.constellationRxMask)) {
+      return Number(item.constellationRxMask);
+    }
+    return 0;
+  }
+
+  function buildRxConstellationChips(instance) {
+    const mask = getConstellationRxMask(instance);
+    const stale = !instance.enabled || !instance.fresh;
     return CONSTELLATIONS.map((item) => {
-      const active = (Number(mask) & (1 << item.bit)) !== 0 ? " is-active" : "";
-      return '<span class="gps-constellation-chip' + active + '">' + item.label + "</span>";
+      const receiving = !stale && (Number(mask) & (1 << item.bit)) !== 0;
+      const cls = receiving ? " is-receiving" : "";
+      return '<span class="gps-rx-constellation-chip' + cls + '">' + item.label + "</span>";
     }).join("");
   }
 
   function renderSelect(select, options, value) {
     if (!select) return;
+    if (document.activeElement === select) return;
+
     const current = Number(value);
-    select.innerHTML = options.map((option) => {
+    let opts = options.slice();
+    if (Number.isFinite(current) && !opts.some((item) => Number(item.value) === current)) {
+      opts = [{ value: current, label: "类型 " + current }, ...opts];
+    }
+
+    const nextValue = Number.isFinite(current) ? String(current) : "";
+    if (
+      select.dataset.bound === "1" &&
+      select.value === nextValue &&
+      select.options.length === opts.length
+    ) {
+      return;
+    }
+
+    select.innerHTML = opts.map((option) => {
       return '<option value="' + option.value + '">' + option.label + "</option>";
     }).join("");
     if (Number.isFinite(current)) {
-      select.value = String(current);
+      select.value = nextValue;
     }
   }
 
@@ -384,9 +509,9 @@
         rateKey,
         gnssKey,
         typeValue,
-        typeLabel: optionLabel(TYPE_OPTIONS, typeValue, enabled ? "Receiver" : "Disabled"),
+        typeLabel: optionLabel(TYPE_OPTIONS, typeValue, enabled ? "接收机" : "禁用"),
         fixType,
-        fixLabel: FIX_LABELS[fixType] || ("Fix " + fixType),
+        fixLabel: FIX_LABELS[fixType] || ("定位 " + fixType),
         statusClass: getFixClass(enabled, fresh, fixType),
         fresh,
         lastUpdateMs,
@@ -406,31 +531,26 @@
     });
   }
 
-  function getPrimaryInstance(instances) {
-    const primaryIndex = Math.min(1, Math.max(0, Number(getDraftValue("GPS_PRIMARY")) || 0));
-    return instances[primaryIndex] || instances[0];
-  }
-
   function getRtkSummary(instances) {
     const telemetry = getTelemetryRoot().rtk || {};
     const bestFix = Math.max.apply(null, instances.map((item) => item.fixType || 0));
     let source = String(telemetry.source || "");
-    let label = "No RTK";
+    let label = "无 RTK";
     let className = "is-muted";
 
     if (bestFix >= 6) {
-      label = "RTK Fixed";
+      label = "RTK 固定";
       className = "is-good";
       if (!source) source = "moving";
     } else if (bestFix >= 5) {
-      label = "RTK Float";
+      label = "RTK 浮点";
       className = "is-warn";
       if (!source) source = "moving";
     } else if (source === "cors") {
-      label = "CORS Ready";
+      label = "CORS 就绪";
       className = "is-warn";
     } else if (source === "moving") {
-      label = "Moving Base";
+      label = "移动基站";
       className = "is-warn";
     }
 
@@ -438,7 +558,7 @@
       source: source || "none",
       label,
       className,
-      injectLabel: optionLabel(INJECT_OPTIONS, getDraftValue("GPS_INJECT_TO"), "Inject"),
+      injectLabel: optionLabel(INJECT_OPTIONS, getDraftValue("GPS_INJECT_TO"), "注入"),
       lastCorrectionMs: Number(telemetry.lastCorrectionMs) || 0,
       ageSec: Number(telemetry.ageSec),
       latencyMs: Number(telemetry.latencyMs),
@@ -457,54 +577,36 @@
     node.className = "gps-status-value " + (className || "");
   }
 
-  function renderTop(instances) {
-    const gps1 = instances[0];
-    const gps2 = instances[1];
-    const primary = getPrimaryInstance(instances);
-    const rtk = getRtkSummary(instances);
+  function renderHeader(instances) {
     const connectionChip = el("gps-conn-chip");
 
-    setText("gps-fw-tag", "Firmware: " + textOr("ov-fw-version", "Waiting"));
-    setText("gps-board-tag", "Vehicle: " + textOr("ov-board-hardware", "Waiting"));
+    setText("gps-fw-tag", "固件: " + textOr("ov-fw-version", "等待上报"));
+    setText("gps-board-tag", "机型: " + textOr("ov-board-hardware", "等待上报"));
 
     if (connectionChip) {
-      connectionChip.textContent = fcConnected() ? "Link connected" : "Link disconnected";
+      connectionChip.textContent = fcConnected() ? "链路已连接" : "链路未连接";
       connectionChip.className = "gps-chip " + (fcConnected() ? "gps-chip--ok" : "gps-chip--offline");
     }
-
-    setStatusValue("gps-status-link", fcConnected() ? "Connected" : "Offline", fcConnected() ? "is-good" : "is-offline");
-    setStatusValue("gps-status-gps1", gps1.enabled ? gps1.fixLabel : "Disabled", gps1.statusClass);
-    setStatusValue("gps-status-gps2", gps2.enabled ? gps2.fixLabel : "Disabled", gps2.statusClass);
-    setText("gps-status-sats", String((gps1.sats || 0) + (gps2.sats || 0) || "--"));
-    setStatusValue(
-      "gps-status-hdop",
-      Number.isFinite(primary.eph) ? primary.eph.toFixed(2) : "--",
-      Number.isFinite(primary.eph) ? (primary.eph < 2 ? "is-good" : primary.eph < 3 ? "is-warn" : "is-bad") : "is-muted"
-    );
-    setStatusValue("gps-status-rtk", rtk.label, rtk.className);
   }
 
   function buildRealtimeRows(instance) {
     return [
-      ["Fix", instance.fixLabel],
-      ["Lat/Lon", fmtLatLon(instance.lat, instance.lon)],
-      ["Altitude", fmt(instance.altM, 2, " m")],
-      ["Speed", fmt(instance.velMps, 2, " m/s")],
-      ["h_acc", fmt(instance.hAccM, 3, " m")],
-      ["v_acc", fmt(instance.vAccM, 3, " m")],
-      ["vel_acc", fmt(instance.velAccMps, 3, " m/s")],
+      ["定位", instance.fixLabel],
+      ["经纬度", fmtLatLon(instance.lat, instance.lon)],
+      ["高度", fmt(instance.altM, 2, " m")],
+      ["速度", fmt(instance.velMps, 2, " m/s")],
+      ["水平精度", fmt(instance.hAccM, 3, " m")],
+      ["垂直精度", fmt(instance.vAccM, 3, " m")],
+      ["速度精度", fmt(instance.velAccMps, 3, " m/s")],
       ["HDOP", Number.isFinite(instance.eph) ? instance.eph.toFixed(2) : "--"],
       ["VDOP", Number.isFinite(instance.epv) ? instance.epv.toFixed(2) : "--"],
-      ["Yaw", Number.isFinite(instance.yawDeg) && instance.yawDeg > 0 ? instance.yawDeg.toFixed(1) + " deg" : "--"],
+      ["航向", Number.isFinite(instance.yawDeg) && instance.yawDeg > 0 ? instance.yawDeg.toFixed(1) + "°" : "--"],
     ];
   }
 
   function buildInstanceCard(instance) {
     const realtimeRows = buildRealtimeRows(instance);
-    const metaProtocol = instance.typeValue === 9 || instance.typeValue === 22 || instance.typeValue === 23
-      ? "DroneCAN"
-      : "Serial";
-    const freshnessLabel = instance.fresh ? "Live" : "Stale";
+    const freshnessLabel = instance.fresh ? "实时" : "过期";
     const cardTone = instance.statusClass === "is-good"
       ? " is-good"
       : instance.statusClass === "is-warn"
@@ -520,39 +622,46 @@
             '<span class="gps-instance-eyebrow">GPS #' + (instance.index + 1) + "</span>" +
             '<div class="gps-instance-name">' + instance.typeLabel + "</div>" +
             '<div class="gps-instance-meta">' +
-              '<span class="gps-inline-tag">' + metaProtocol + "</span>" +
-              '<span class="gps-inline-tag">Sats ' + instance.sats + "</span>" +
+              '<span class="gps-inline-tag">卫星 ' + instance.sats + "</span>" +
               '<span class="gps-inline-tag">' + freshnessLabel + "</span>" +
             "</div>" +
           "</div>" +
           '<div class="gps-head-right">' +
             '<span class="gps-fix-badge ' + instance.statusClass + '">' + instance.fixLabel + "</span>" +
-            '<div class="gps-signal-block">' + buildSignalBars(instance.sats) + "</div>" +
+            buildInstanceDopHtml(instance) +
           "</div>" +
         "</div>" +
         '<div class="gps-instance-body">' +
-          '<div class="gps-real-grid">' +
-            realtimeRows.map((row) => {
-              return '<div class="gps-kv"><span>' + row[0] + "</span><strong>" + row[1] + "</strong></div>";
-            }).join("") +
+          '<div class="gps-instance-primary-col">' +
+            '<div class="gps-real-grid">' +
+              '<div class="gps-real-kv-list">' +
+              realtimeRows.map((row) => {
+                return '<div class="gps-kv"><span>' + row[0] + "</span><strong>" + row[1] + "</strong></div>";
+              }).join("") +
+              "</div>" +
+              '<div class="gps-rx-constellation">' +
+                '<div class="gps-rx-constellation-head">接收星座</div>' +
+                '<div class="gps-rx-constellation-grid">' + buildRxConstellationChips(instance) + "</div>" +
+                '<p class="gps-rx-constellation-note muted">分星座遥测待接入，收到卫星后将高亮显示</p>' +
+              "</div>" +
+            "</div>" +
+            '<div class="gps-instance-actions">' +
+              '<button type="button" class="gps-card-action gps-instance-param-btn" data-write-instance="' + instance.index + '">设置参数</button>' +
+            "</div>" +
           "</div>" +
           '<div class="gps-fields-grid">' +
-            '<label class="gps-field"><span>Receiver Type</span><select id="gps-type-' + instance.index + '"></select></label>' +
-            '<label class="gps-field"><span>Update Rate</span><select id="gps-rate-' + instance.index + '"></select></label>' +
-            '<label class="gps-field"><span>GNSS Modes</span><div id="gps-gnss-' + instance.index + '" class="gps-check-grid"></div></label>' +
+            '<label class="gps-field">' + fieldLabel("接收机类型", "Receiver Type") + '<select id="gps-type-' + instance.index + '"></select></label>' +
+            '<label class="gps-field">' + fieldLabel("更新频率", "Update Rate") + '<select id="gps-rate-' + instance.index + '"></select></label>' +
+            '<div class="gps-field">' +
+              fieldLabel("GNSS 模式", "GNSS Mode") +
+              '<div id="gps-gnss-' + instance.index + '" class="gps-check-grid"></div>' +
+            "</div>" +
             (instance.index === 0
-              ? '<label class="gps-field"><span>HDOP Good</span><input id="gps-hdop-good" type="number" step="1"></label>' +
-                '<label class="gps-field"><span>Min Satellites</span><input id="gps-min-sats" type="number" step="1"></label>' +
-                '<label class="gps-field"><span>Auto Config</span><select id="gps-auto-config"></select></label>' +
-                '<label class="gps-field"><span>SBAS</span><select id="gps-sbas-mode"></select></label>'
+              ? '<label class="gps-field">' + fieldLabel("HDOP 良好阈值", "HDOP Good Threshold") + '<input id="gps-hdop-good" type="number" step="1"></label>' +
+                '<label class="gps-field">' + fieldLabel("最少卫星数", "Min Satellites") + '<input id="gps-min-sats" type="number" step="1"></label>' +
+                '<label class="gps-field">' + fieldLabel("自动配置", "Auto Config") + '<select id="gps-auto-config"></select></label>' +
+                '<label class="gps-field">' + fieldLabel("SBAS", "SBAS") + '<select id="gps-sbas-mode"></select></label>'
               : "") +
-          "</div>" +
-        "</div>" +
-        '<div class="gps-instance-foot">' +
-          '<div class="gps-constellation-grid">' + buildConstellationChips(instance.gnssMask) + "</div>" +
-          '<div class="gps-card-head">' +
-            '<p class="muted">Last telemetry: ' + formatAge(instance.lastUpdateMs) + '. Card write only sends fields owned by this receiver card.</p>' +
-            '<button type="button" class="gps-card-action" data-write-instance="' + instance.index + '">Write Card</button>' +
           "</div>" +
         "</div>" +
       "</article>"
@@ -565,17 +674,91 @@
         '<div class="gps-instance-head">' +
           '<div class="gps-instance-title">' +
             '<span class="gps-instance-eyebrow">GPS #2</span>' +
-            '<div class="gps-instance-name">Secondary receiver disabled</div>' +
+            '<div class="gps-instance-name">副接收机未启用</div>' +
           "</div>" +
         "</div>" +
         '<div class="gps-instance-empty">' +
-          '<div class="gps-empty-title">Enable GPS2</div>' +
-          '<div class="gps-empty-copy">GPS_TYPE2 is 0. Enable it to use dual GPS blending, redundancy, or moving-baseline heading.</div>' +
-          '<label class="gps-field"><span>Receiver Type</span><select id="gps2-enable-type"></select></label>' +
-          '<button type="button" id="gps2-enable-btn" class="gps-enable-btn">Enable GPS2</button>' +
+          '<div class="gps-empty-title">启用 GPS2</div>' +
+          '<div class="gps-empty-copy">GPS_TYPE2 为 0。启用后可使用双 GPS 融合、冗余或移动基线航向。</div>' +
+          '<label class="gps-field">' + fieldLabel("接收机类型", "Receiver Type") + '<select id="gps2-enable-type"></select></label>' +
+          '<button type="button" id="gps2-enable-btn" class="gps-enable-btn">启用 GPS2</button>' +
         "</div>" +
       "</article>"
     );
+  }
+
+  function instanceGridSignature(instances) {
+    return instances.map((instance) => {
+      if (instance.index === 1 && !instance.enabled) return "1:empty";
+      return instance.index + ":card";
+    }).join("|");
+  }
+
+  function applyCardTone(card, statusClass) {
+    card.classList.remove("is-good", "is-warn", "is-bad");
+    if (statusClass === "is-good") card.classList.add("is-good");
+    else if (statusClass === "is-warn") card.classList.add("is-warn");
+    else if (statusClass === "is-bad") card.classList.add("is-bad");
+  }
+
+  function updateInstanceTelemetry(instances) {
+    instances.forEach((instance) => {
+      if (instance.index === 1 && !instance.enabled) return;
+      const card = document.querySelector('#gps-instance-grid [data-gps-instance="' + instance.index + '"]');
+      if (!card) return;
+
+      applyCardTone(card, instance.statusClass);
+
+      const name = card.querySelector(".gps-instance-name");
+      if (name) name.textContent = instance.typeLabel;
+
+      const meta = card.querySelector(".gps-instance-meta");
+      if (meta) {
+        meta.innerHTML =
+          '<span class="gps-inline-tag">卫星 ' + instance.sats + "</span>" +
+          '<span class="gps-inline-tag">' + (instance.fresh ? "实时" : "过期") + "</span>";
+      }
+
+      const badge = card.querySelector(".gps-fix-badge");
+      if (badge) {
+        badge.textContent = instance.fixLabel;
+        badge.className = "gps-fix-badge " + instance.statusClass;
+      }
+
+      const signal = card.querySelector(".gps-instance-dop");
+      if (signal) updateInstanceDop(card, instance);
+
+      const kvList = card.querySelector(".gps-real-kv-list");
+      if (kvList) {
+        kvList.innerHTML = buildRealtimeRows(instance).map((row) => {
+          return '<div class="gps-kv"><span>' + row[0] + "</span><strong>" + row[1] + "</strong></div>";
+        }).join("");
+      }
+
+      const rxGrid = card.querySelector(".gps-rx-constellation-grid");
+      if (rxGrid) rxGrid.innerHTML = buildRxConstellationChips(instance);
+    });
+  }
+
+  function bindInstanceCardActions(host) {
+    const gps2EnableBtn = host.querySelector("#gps2-enable-btn");
+    if (gps2EnableBtn && gps2EnableBtn.dataset.bound !== "1") {
+      gps2EnableBtn.dataset.bound = "1";
+      gps2EnableBtn.addEventListener("click", () => {
+        const nextType = Number(el("gps2-enable-type")?.value || 9);
+        setDraftValue("GPS_TYPE2", nextType);
+        render(true);
+      });
+    }
+
+    host.querySelectorAll("[data-write-instance]").forEach((button) => {
+      if (button.dataset.bound === "1") return;
+      button.dataset.bound = "1";
+      button.addEventListener("click", () => {
+        const instanceIndex = Number(button.getAttribute("data-write-instance"));
+        writeKeys(INSTANCE_KEYS[instanceIndex] || [], instanceIndex === 0 ? "GPS1" : "GPS2");
+      });
+    });
   }
 
   function renderInstanceControls(instances) {
@@ -600,35 +783,47 @@
     }
   }
 
-  function renderInstances(instances) {
+  function renderInstances(instances, options) {
     const host = el("gps-instance-grid");
     if (!host) return;
 
-    const html = instances.map((instance) => {
-      if (instance.index === 1 && !instance.enabled) {
-        return buildEmptyGps2Card();
-      }
-      return buildInstanceCard(instance);
-    }).join("");
+    const forceRebuild = !!(options && options.forceRebuild);
+    const signature = instanceGridSignature(instances);
+    if (forceRebuild || signature !== state.instanceGridSignature) {
+      state.instanceGridSignature = signature;
+      const html = instances.map((instance) => {
+        if (instance.index === 1 && !instance.enabled) {
+          return buildEmptyGps2Card();
+        }
+        return buildInstanceCard(instance);
+      }).join("");
 
-    host.innerHTML = html;
-    renderInstanceControls(instances);
-
-    const gps2EnableBtn = el("gps2-enable-btn");
-    if (gps2EnableBtn) {
-      gps2EnableBtn.addEventListener("click", () => {
-        const nextType = Number(el("gps2-enable-type")?.value || 9);
-        setDraftValue("GPS_TYPE2", nextType);
-        render(true);
-      });
+      host.innerHTML = html;
+      bindInstanceCardActions(host);
+      bindDynamicControls();
     }
 
-    host.querySelectorAll("[data-write-instance]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const instanceIndex = Number(button.getAttribute("data-write-instance"));
-        writeKeys(INSTANCE_KEYS[instanceIndex] || [], instanceIndex === 0 ? "GPS1" : "GPS2");
-      });
+    renderInstanceControls(instances);
+    updateInstanceTelemetry(instances);
+  }
+
+  async function probeGpsParams() {
+    if (!fcConnected() || typeof window.requestParamByName !== "function") return;
+
+    const gen = ++state.probeGeneration;
+    const names = [];
+    ALL_PARAM_KEYS.forEach((key) => {
+      const resolved = resolveParamKey(key);
+      if (!names.includes(resolved)) names.push(resolved);
     });
+
+    for (const name of names) {
+      if (gen !== state.probeGeneration) return;
+      await window.requestParamByName(name).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 35));
+    }
+
+    reconcileDraftsWithParams();
   }
 
   function renderLowerCards() {
@@ -649,13 +844,9 @@
   }
 
   function renderRail(instances) {
-    const primary = getPrimaryInstance(instances);
     const rtk = getRtkSummary(instances);
-    const warningText = textOr("ov-global-warning", "");
-    const hdopWidth = Number.isFinite(primary.eph) ? Math.max(0, Math.min(100, ((4 - Math.min(primary.eph, 4)) / 4) * 100)) : 0;
-    const vdopWidth = Number.isFinite(primary.epv) ? Math.max(0, Math.min(100, ((4 - Math.min(primary.epv, 4)) / 4) * 100)) : 0;
     const lastAge = rtk.ageSec != null && Number.isFinite(rtk.ageSec)
-      ? String(rtk.ageSec) + "s"
+      ? String(rtk.ageSec) + " 秒"
       : "--";
     const latency = rtk.latencyMs != null && Number.isFinite(rtk.latencyMs)
       ? String(rtk.latencyMs) + " ms"
@@ -665,26 +856,6 @@
     setText("gps-rtk-inject", rtk.injectLabel);
     setText("gps-rtk-last", rtk.lastCorrectionMs ? formatAge(rtk.lastCorrectionMs) : "--");
     setText("gps-rtk-age", lastAge + " / " + latency);
-    setText("gps-hdop-rail", Number.isFinite(primary.eph) ? primary.eph.toFixed(2) : "--");
-    setText("gps-vdop-rail", Number.isFinite(primary.epv) ? primary.epv.toFixed(2) : "--");
-    setText("gps-hacc-rail", fmt(primary.hAccM, 3, " m"));
-    setText("gps-primary-snapshot", Number(getDraftValue("GPS_PRIMARY")) === 1 ? "GPS2" : "GPS1");
-    setText("gps-yaw-snapshot", Number.isFinite(primary.yawDeg) && primary.yawDeg > 0 ? primary.yawDeg.toFixed(1) + " deg" : "Unavailable");
-    setText("gps-latlon-snapshot", fmtLatLon(primary.lat, primary.lon));
-    setText("gps-altvel-snapshot", fmt(primary.altM, 1, " m") + " / " + fmt(primary.velMps, 1, " m/s"));
-    setText("gps-prearm-summary", warningText || "No additional prearm warnings.");
-
-    const hdopBar = el("gps-hdop-bar");
-    const vdopBar = el("gps-vdop-bar");
-    if (hdopBar) hdopBar.style.width = hdopWidth + "%";
-    if (vdopBar) vdopBar.style.width = vdopWidth + "%";
-
-    const list = el("gps-prearm-list");
-    if (list) {
-      list.innerHTML = warningText
-        ? '<div class="gps-alert-item is-warn">' + warningText + "</div>"
-        : '<div class="gps-alert-item">No pending prearm warnings.</div>';
-    }
   }
 
   function updateFieldDirtyStyles() {
@@ -697,26 +868,12 @@
 
   function updateDirtyUi() {
     updateFieldDirtyStyles();
-
-    const dirtyCount = state.drafts.size;
-    setText("gps-dirty-count", dirtyCount > 0 ? ("Unsaved changes: " + dirtyCount) : "No unsaved changes");
-    setText(
-      "gps-footer-note",
-      dirtyCount > 0
-        ? "Card write sends only that card. Global write sends every pending GPS change."
-        : "Drafts are clean. Refresh to re-read params or keep editing locally."
-    );
-
-    const writeAllBtn = el("gps-write-all-btn");
-    if (writeAllBtn) {
-      writeAllBtn.disabled = !fcConnected() || dirtyCount === 0;
-    }
   }
 
   function refreshRequestedParams(keys) {
     if (typeof window.requestParamByName !== "function") return Promise.resolve();
     return keys.reduce((promise, key) => {
-      return promise.then(() => window.requestParamByName(key).catch(() => {}));
+      return promise.then(() => window.requestParamByName(resolveParamKey(key)).catch(() => {}));
     }, Promise.resolve());
   }
 
@@ -728,7 +885,7 @@
 
     if (!fcConnected()) {
       if (status) {
-        status.textContent = "Flight controller is disconnected. Write is blocked.";
+        status.textContent = "飞控未连接，无法写入。";
         status.className = "muted gps-write-status is-bad";
       }
       return;
@@ -736,25 +893,25 @@
 
     if (!pending.length) {
       if (status) {
-        status.textContent = label + ": no pending changes.";
+        status.textContent = label + "：无待写入修改。";
         status.className = "muted gps-write-status";
       }
       return;
     }
 
     if (status) {
-      status.textContent = label + ": writing " + pending.length + " params...";
+      status.textContent = label + "：正在写入 " + pending.length + " 个参数…";
       status.className = "muted gps-write-status is-warn";
     }
 
     let sent = 0;
     for (const item of pending) {
       try {
-        const ok = await window.sendParamSet(item.key, item.value);
+        const ok = await window.sendParamSet(resolveParamKey(item.key), item.value);
         if (ok) {
           sent += 1;
           if (window.params instanceof Map) {
-            window.params.set(item.key, Number(item.value));
+            window.params.set(resolveParamKey(item.key), Number(item.value));
           }
           state.drafts.delete(item.key);
         }
@@ -769,7 +926,7 @@
     await refreshRequestedParams(keys);
 
     if (status) {
-      status.textContent = label + ": wrote " + sent + "/" + pending.length + " params.";
+      status.textContent = label + "：已写入 " + sent + "/" + pending.length + " 个参数。";
       status.className = "muted gps-write-status " + (sent === pending.length ? "is-ok" : "is-warn");
     }
 
@@ -782,6 +939,7 @@
     if (typeof window.loadParams === "function") {
       await window.loadParams({ force: true }).catch(() => {});
     }
+    await probeGpsParams();
     render(true);
   }
 
@@ -792,7 +950,7 @@
     render(true);
     const status = el("gps-write-status");
     if (status) {
-      status.textContent = "Recommended defaults staged locally. Write to FC to apply them.";
+      status.textContent = "推荐默认值已暂存本地，写入飞控后生效。";
       status.className = "muted gps-write-status is-warn";
     }
   }
@@ -801,7 +959,7 @@
     persistDrafts();
     const status = el("gps-write-status");
     if (status) {
-      status.textContent = "Drafts saved locally in this browser.";
+      status.textContent = "草稿已保存到本浏览器。";
       status.className = "muted gps-write-status is-ok";
     }
   }
@@ -814,25 +972,32 @@
   }
 
   function bindStaticActions() {
-    el("gps-open-rtk-inline")?.addEventListener("click", () => toggleSetupPanel(RTK_PANEL));
-    el("gps-open-rtk-rail")?.addEventListener("click", () => toggleSetupPanel(RTK_PANEL));
-    el("gps-refresh-btn")?.addEventListener("click", () => {
-      refreshParams();
-    });
-    el("gps-save-local-btn")?.addEventListener("click", () => saveLocalOnly());
-    el("gps-restore-default-btn")?.addEventListener("click", () => restoreDefaults());
-    el("gps-write-all-btn")?.addEventListener("click", () => {
-      writeKeys(Array.from(state.drafts.keys()), "Global GPS");
-    });
-    el("gps-write-offset-btn")?.addEventListener("click", () => writeKeys(OFFSET_KEYS, "Offsets"));
-    el("gps-write-blend-btn")?.addEventListener("click", () => writeKeys(BLEND_KEYS, "Dual GPS"));
-    el("gps-write-advanced-btn")?.addEventListener("click", () => writeKeys(ADVANCED_KEYS, "Advanced"));
+    el("gps-open-rtk-btn")?.addEventListener("click", () => toggleSetupPanel(RTK_PANEL));
+    el("gps-write-offset-btn")?.addEventListener("click", () => writeKeys(OFFSET_KEYS, "安装偏移"));
+    el("gps-write-blend-btn")?.addEventListener("click", () => writeKeys(BLEND_KEYS, "双 GPS 融合"));
+    el("gps-write-advanced-btn")?.addEventListener("click", () => writeKeys(ADVANCED_KEYS, "高级参数"));
   }
 
   function collectBitmaskFromGroup(group) {
     return Array.from(group.querySelectorAll("input[data-mask-bit]")).reduce((sum, input) => {
       return sum + (input.checked ? (1 << Number(input.getAttribute("data-mask-bit"))) : 0);
     }, 0);
+  }
+
+  function handleControlDraftChange(key, nextValue) {
+    const prevValue = getDraftValue(key);
+    const prevEnabled = Number(prevValue) !== 0;
+    setDraftValue(key, nextValue);
+    updateDirtyUi();
+
+    const isTypeKey = key === "GPS_TYPE" || key === "GPS_TYPE2";
+    const nowEnabled = Number(nextValue) !== 0;
+    if (isTypeKey && prevEnabled !== nowEnabled) {
+      render(true);
+      return;
+    }
+
+    updateInstanceTelemetry(getInstances());
   }
 
   function bindDynamicControls() {
@@ -853,9 +1018,7 @@
       select.addEventListener("change", () => {
         const key = select.getAttribute("data-param-key") || PARAM_ID_MAP[select.id];
         if (!key) return;
-        setDraftValue(key, Number(select.value));
-        updateDirtyUi();
-        render(true);
+        handleControlDraftChange(key, Number(select.value));
       });
     });
 
@@ -868,9 +1031,17 @@
         if (!key || !group) return;
         setDraftValue(key, collectBitmaskFromGroup(group));
         updateDirtyUi();
-        render(true);
+        updateInstanceTelemetry(getInstances());
       });
     });
+  }
+
+  function renderTelemetry() {
+    if (!state.mounted || !state.panelActive) return;
+    const instances = getInstances();
+    renderHeader(instances);
+    updateInstanceTelemetry(instances);
+    renderRail(instances);
   }
 
   function render(force) {
@@ -878,12 +1049,18 @@
     if (!force && !state.panelActive) return;
 
     const instances = getInstances();
-    renderTop(instances);
-    renderInstances(instances);
+    renderHeader(instances);
+    renderInstances(instances, { forceRebuild: !!force });
     renderLowerCards();
     renderRail(instances);
     bindDynamicControls();
     updateDirtyUi();
+  }
+
+  async function activatePanel() {
+    state.panelActive = true;
+    await probeGpsParams();
+    render(true);
   }
 
   function mount() {
@@ -895,15 +1072,33 @@
     state.panelActive = document.querySelector(".ov-nav-item.active[data-setup-panel='params']") != null;
 
     window.addEventListener("gcs:setup-panel-changed", (event) => {
-      state.panelActive = event.detail?.panel === GPS_PANEL;
-      if (state.panelActive) render(true);
+      const active = event.detail?.panel === GPS_PANEL;
+      state.panelActive = active;
+      if (active) {
+        activatePanel().catch(() => render(true));
+      }
     });
 
-    document.addEventListener("gcs-connection", () => render(true));
-    document.addEventListener("gcs-prearm-hint", () => render(true));
-    setInterval(() => render(false), 1000);
+    document.addEventListener("gcs-connection", () => {
+      if (!state.panelActive) return;
+      activatePanel().catch(() => render(true));
+    });
+    document.addEventListener("gcs-sensor-overview-changed", (event) => {
+      const name = String(event.detail?.name || "");
+      if (!state.panelActive || !/^GPS/i.test(name)) return;
+      reconcileDraftsWithParams();
+      renderInstanceControls(getInstances());
+      updateInstanceTelemetry(getInstances());
+      renderLowerCards();
+      updateDirtyUi();
+    });
+    setInterval(() => renderTelemetry(), 1000);
 
-    render(true);
+    if (state.panelActive) {
+      activatePanel().catch(() => render(true));
+    } else {
+      render(true);
+    }
   }
 
   window.gpsSetupOpenPanel = toggleSetupPanel;

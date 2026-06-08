@@ -641,7 +641,7 @@ body {
   --ov-nav-text: #d0d5f0;
 }
 
-.ov-nav-item[data-setup-panel="help"] {
+.ov-nav-item[data-setup-panel="radar"] {
   --ov-nav-accent: #26a69a;
   --ov-nav-bg: rgba(38, 166, 154, 0.14);
   --ov-nav-border: rgba(38, 166, 154, 0.38);
