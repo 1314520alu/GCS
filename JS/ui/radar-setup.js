@@ -570,25 +570,18 @@
   function syncRangeUi(prefix, minKey, maxKey) {
     const minVal = Number(getDraftValue(minKey));
     const maxVal = Number(getDraftValue(maxKey));
-    const minDefault = el(`${prefix}-min-default`);
-    const maxDefault = el(`${prefix}-max-default`);
     const minSlider = el(`${prefix}-min-dist`);
     const maxSlider = el(`${prefix}-max-dist`);
-    const minIsDefault = minVal === 0;
-    const maxIsDefault = maxVal === 0;
-
-    if (minDefault && document.activeElement !== minDefault) minDefault.checked = minIsDefault;
-    if (maxDefault && document.activeElement !== maxDefault) maxDefault.checked = maxIsDefault;
     if (minSlider) {
-      minSlider.disabled = minIsDefault;
-      if (!minIsDefault) minSlider.value = String(Math.max(0.1, minVal));
+      minSlider.disabled = false;
+      minSlider.value = String(Math.max(0.1, Number.isFinite(minVal) ? minVal : 0.3));
     }
     if (maxSlider) {
-      maxSlider.disabled = maxIsDefault;
-      if (!maxIsDefault) maxSlider.value = String(Math.max(1, maxVal));
+      maxSlider.disabled = false;
+      maxSlider.value = String(Math.max(1, Number.isFinite(maxVal) ? maxVal : 40));
     }
-    setText(`${prefix}-min-dist-val`, minIsDefault ? "厂商默认" : minVal.toFixed(1) + " m");
-    setText(`${prefix}-max-dist-val`, maxIsDefault ? "厂商默认" : maxVal.toFixed(0) + " m");
+    setText(`${prefix}-min-dist-val`, (Number.isFinite(minVal) ? minVal : 0.3).toFixed(1) + " m");
+    setText(`${prefix}-max-dist-val`, (Number.isFinite(maxVal) ? maxVal : 40).toFixed(0) + " m");
   }
 
   function updateInstanceParamKeys() {
@@ -831,27 +824,6 @@
   }
 
   function bindRangeControls() {
-    const bindDefault = (checkboxId, suffix, isMax) => {
-      const checkbox = el(checkboxId);
-      if (!checkbox || checkbox.dataset.bound === "1") return;
-      checkbox.dataset.bound = "1";
-      checkbox.addEventListener("change", () => {
-        const key = paramKey(suffix);
-        if (checkbox.checked) {
-          setDraftValue(key, 0);
-        } else {
-          const defKey = `PRX${state.activeInstance}_${suffix}`;
-          setDraftValue(key, isMax ? (DEFAULTS[defKey] || 40) : (DEFAULTS[defKey] || 0.3));
-        }
-        updateDirtyUi();
-        render(true);
-      });
-    };
-
-    bindDefault("radar-max-default", "MAX", true);
-    bindDefault("radar-min-default", "MIN", false);
-
-    // Re-bind on instance change via delegated approach
     const maxSlider = el("radar-max-dist");
     const minSlider = el("radar-min-dist");
     if (maxSlider && maxSlider.dataset.delegated !== "1") {

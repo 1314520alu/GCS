@@ -114,6 +114,21 @@
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.radar-toolbar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.radar-dirty-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #dbeafe;
+  line-height: 1.3;
 }
 
 .radar-toolbar button {
@@ -215,7 +230,7 @@
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
   gap: var(--radar-gap);
-  align-items: start;
+  align-items: stretch;
 }
 
 .radar-left,
@@ -224,6 +239,37 @@
   flex-direction: column;
   gap: var(--radar-gap);
   min-width: 0;
+}
+
+.radar-body > .radar-left,
+.radar-body > .radar-right {
+  display: contents;
+}
+
+.radar-card-sensor {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.radar-card-mount-range {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.radar-card-sector {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+.radar-live-card {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  height: 100%;
+}
+
+.radar-card-obstacles {
+  grid-column: 2;
+  grid-row: 3;
 }
 
 .radar-card {
@@ -281,6 +327,15 @@
   gap: 10px;
 }
 
+.radar-fields-sensor-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.radar-fields-sensor-grid .radar-hint {
+  grid-column: 1 / -1;
+}
+
 .radar-field {
   display: grid;
   gap: 6px;
@@ -288,8 +343,10 @@
 
 .radar-field-label {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
   line-height: 1.25;
 }
 
@@ -402,15 +459,6 @@
 .radar-yaw-preset:hover {
   border-color: rgba(59, 130, 246, 0.45);
   color: #dbeafe;
-}
-
-.radar-default-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--radar-muted);
-  margin-bottom: 4px;
 }
 
 .radar-hint {
@@ -535,6 +583,7 @@
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  align-self: stretch;
 }
 
 .radar-live-head {
@@ -558,8 +607,9 @@
 .radar-canvas-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 1;
-  max-height: min(52vh, 420px);
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  max-height: none;
   min-height: 200px;
   border-radius: 10px;
   border: 1px solid rgba(55, 65, 81, 0.85);
@@ -640,21 +690,10 @@
 
 .radar-footer {
   padding: 10px 14px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-}
-
-.radar-footer-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: block;
 }
 
 .radar-write-status {
-  grid-column: 1 / -1;
   margin: 0;
   font-size: 12px;
   color: var(--radar-muted);
@@ -669,11 +708,28 @@
     grid-template-columns: 1fr;
   }
 
+  .radar-body > .radar-left,
+  .radar-body > .radar-right {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .radar-card-sensor,
+  .radar-card-mount-range,
+  .radar-card-sector,
+  .radar-live-card,
+  .radar-card-obstacles {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .radar-bottom {
     grid-template-columns: 1fr;
   }
 
   .radar-canvas-wrap {
+    flex: 0 0 auto;
+    aspect-ratio: 1;
     max-height: min(45vh, 360px);
   }
 }
@@ -698,5 +754,9 @@
   .radar-instance-tab {
     flex: 1 1 calc(50% - 6px);
     min-width: 0;
+  }
+
+  .radar-fields-sensor-grid {
+    grid-template-columns: 1fr;
   }
 }

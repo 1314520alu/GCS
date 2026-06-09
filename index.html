@@ -999,7 +999,10 @@
               </div>
             </div>
             <div class="radar-toolbar">
-              <button type="button" id="radar-read-btn">从飞控读取</button>
+              <div class="radar-toolbar-stack">
+                <button type="button" id="radar-read-btn">从飞控读取</button>
+                <strong id="radar-dirty-count" class="radar-dirty-count">无未写入修改</strong>
+              </div>
               <button type="button" id="radar-write-btn" class="radar-btn-primary">写入飞控</button>
               <button type="button" id="radar-refresh-btn">刷新</button>
               <button type="button" id="radar-reset-btn">恢复默认</button>
@@ -1017,12 +1020,12 @@
           <div class="radar-main">
           <div class="radar-body">
             <div class="radar-left">
-              <section class="radar-card">
+              <section class="radar-card radar-card-sensor">
                 <div class="radar-card-head">
                   <h4>传感器</h4>
                   <span id="radar-device-badge" class="radar-badge is-offline">离线</span>
                 </div>
-                <div class="radar-fields">
+                <div class="radar-fields radar-fields-sensor-grid">
                   <label class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">设备类型</span><span class="radar-field-label-en">PRX_TYPE</span></span>
                     <select id="radar-device-type" data-param-key="PRX1_TYPE"></select>
@@ -1043,7 +1046,7 @@
                 </div>
               </section>
 
-              <section class="radar-card">
+              <section class="radar-card radar-card-mount-range">
                 <div class="radar-card-head"><h4>安装与量程</h4></div>
                 <div class="radar-fields">
                   <div class="radar-field">
@@ -1065,7 +1068,6 @@
                   </div>
                   <div class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">最大距离</span><span class="radar-field-label-en">PRX_MAX</span></span>
-                    <label class="radar-default-check"><input id="radar-max-default" type="checkbox"> 厂商默认 (0)</label>
                     <div class="radar-slider-row">
                       <input id="radar-max-dist" data-param-key="PRX1_MAX" type="range" min="1" max="500" step="1">
                       <span id="radar-max-dist-val" class="radar-slider-val">40 m</span>
@@ -1073,7 +1075,6 @@
                   </div>
                   <div class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">最小距离</span><span class="radar-field-label-en">PRX_MIN</span></span>
-                    <label class="radar-default-check"><input id="radar-min-default" type="checkbox"> 厂商默认 (0)</label>
                     <div class="radar-slider-row">
                       <input id="radar-min-dist" data-param-key="PRX1_MIN" type="range" min="0.1" max="500" step="0.1">
                       <span id="radar-min-dist-val" class="radar-slider-val">0.3 m</span>
@@ -1082,7 +1083,7 @@
                 </div>
               </section>
 
-              <section class="radar-card" id="radar-sector-panel">
+              <section class="radar-card radar-card-sector" id="radar-sector-panel">
                 <div class="radar-card-head"><h4>忽略扇区</h4></div>
                 <div id="radar-sector-readout" class="radar-sector-readout"></div>
               </section>
@@ -1099,7 +1100,7 @@
                 </div>
               </section>
 
-              <section class="radar-card">
+              <section class="radar-card radar-card-obstacles">
                 <div class="radar-card-head"><h4>障碍物列表</h4></div>
                 <div class="radar-table-wrap">
                   <table id="radar-obstacle-table" class="radar-table">
@@ -1191,7 +1192,6 @@
           </div>
 
           <footer class="radar-footer">
-            <strong id="radar-dirty-count">无未写入修改</strong>
             <p id="radar-write-status" class="radar-write-status"></p>
           </footer>
         </div>
