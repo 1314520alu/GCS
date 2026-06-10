@@ -480,9 +480,17 @@
       );
     }).join("");
 
-    const crosshair =
-      '<line x1="' + center + '" y1="' + (center - radiusPx) + '" x2="' + center + '" y2="' + (center + radiusPx) + '" stroke="rgba(75,85,99,0.45)" stroke-width="1"></line>' +
-      '<line x1="' + (center - radiusPx) + '" y1="' + center + '" x2="' + (center + radiusPx) + '" y2="' + center + '" stroke="rgba(75,85,99,0.45)" stroke-width="1"></line>';
+    const dividerAngles = [0, 45, 90, 135];
+    const dividers = dividerAngles.map((angleDeg) => {
+      const rad = ((angleDeg - 90) * Math.PI) / 180;
+      const dx = Math.cos(rad) * radiusPx;
+      const dy = Math.sin(rad) * radiusPx;
+      return (
+        '<line x1="' + (center - dx) + '" y1="' + (center - dy) + '" ' +
+          'x2="' + (center + dx) + '" y2="' + (center + dy) + '" ' +
+          'stroke="rgba(75,85,99,0.45)" stroke-width="1"></line>'
+      );
+    }).join("");
 
     const aircraft =
       '<g transform="translate(' + center + ',' + center + ')">' +
@@ -524,7 +532,7 @@
       "</defs>" +
       '<g id="radar-static-layer">' +
         ringHtml +
-        crosshair +
+        dividers +
         sectorsHtml +
         sweep +
         aircraft +

@@ -752,7 +752,7 @@
 
 .radar-sweep {
   transform-origin: 200px 200px;
-  animation: radar-sweep 4s linear infinite;
+  animation: radar-sweep 1s linear infinite;
 }
 
 @keyframes radar-sweep {

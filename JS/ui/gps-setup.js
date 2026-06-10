@@ -14,6 +14,15 @@
     );
   }
 
+  function chipLabel(zh, en) {
+    return (
+      '<span class="gps-chip-label">' +
+        '<span class="gps-chip-label-zh">' + zh + "</span>" +
+        '<span class="gps-chip-label-en">' + en + "</span>" +
+      "</span>"
+    );
+  }
+
   const INSTANCE_KEYS = {
     0: [
       "GPS_TYPE",
@@ -218,11 +227,11 @@
   ];
 
   const DRV_OPTIONS = [
-    { bit: 0, label: "UART2 移动基站" },
-    { bit: 1, label: "SBF 基站航向" },
-    { bit: 2, label: "115200 波特率" },
-    { bit: 3, label: "专用 CAN 基线" },
-    { bit: 4, label: "椭球高度" },
+    { bit: 0, label: "UART2 移动基站", labelEn: "Use UART2 for moving baseline on ublox" },
+    { bit: 1, label: "SBF 基站航向", labelEn: "Use base station for GPS yaw on SBF" },
+    { bit: 2, label: "115200 波特率", labelEn: "Use baudrate 115200 on ublox" },
+    { bit: 3, label: "专用 CAN 基线", labelEn: "Use dedicated CAN port b/w GPSes for moving baseline" },
+    { bit: 4, label: "椭球高度", labelEn: "Use ellipsoid height instead of AMSL" },
   ];
 
   const FIX_LABELS = {
@@ -488,10 +497,13 @@
     if (!host) return;
     host.innerHTML = options.map((option) => {
       const checked = (Number(value) & (1 << option.bit)) !== 0 ? " checked" : "";
+      const labelHtml = option.labelEn
+        ? chipLabel(option.label, option.labelEn)
+        : "<span>" + option.label + "</span>";
       return (
         '<label class="gps-check-chip">' +
           '<input type="checkbox" data-mask-key="' + key + '" data-mask-bit="' + option.bit + '"' + checked + ">" +
-          "<span>" + option.label + "</span>" +
+          labelHtml +
         "</label>"
       );
     }).join("");
