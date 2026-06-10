@@ -278,6 +278,9 @@ window.endParamLoadingUI = function endParamLoadingUI(ok, reason) {
     if (typeof window.requestAutopilotVersionFromVehicle === "function") {
       window.requestAutopilotVersionFromVehicle();
     }
+    if (typeof window.requestProximityTelemetryStreams === "function") {
+      window.requestProximityTelemetryStreams().catch(() => {});
+    }
   } else if (ok && reason === "partial") {
     window._gcsParamsLoadedOnce = true;
     window._gcsParamsLoadedSessionId = window._gcsConnSessionId;

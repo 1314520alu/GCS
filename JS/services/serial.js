@@ -423,6 +423,9 @@ function bumpConnectionSession() {
 
 function setConnectionUI(state) {
   window._gcsConnState = state;
+  if (state === "disconnected") {
+    window._radarTelemetryRxLogged = false;
+  }
   try {
     document.dispatchEvent(new CustomEvent("gcs-connection", { detail: { state } }));
   } catch (e) { /* ignore */ }
@@ -457,6 +460,36 @@ function setConnectionUI(state) {
     btn.textContent = comSelect.value === "__refresh_bridge__" ? "刷新串口" : "连接串口";
   }
 }
+
+function hasActiveConnectionRuntime() {
+  if (window._bridgeConnActive === true) return true;
+  if (window.port && typeof window.port === "object") return true;
+  if (window.writer || (typeof writer !== "undefined" && writer)) return true;
+  if (window.reader || (typeof reader !== "undefined" && reader)) return true;
+  return false;
+}
+
+function reconcileConnectionUiState(reason) {
+  const state = String(window._gcsConnState || "").toLowerCase();
+  if (state !== "connected" && state !== "connecting") {
+    setConnectionUI("disconnected");
+    return false;
+  }
+  if (hasActiveConnectionRuntime()) {
+    setConnectionUI(state);
+    return true;
+  }
+  try {
+    if (typeof log === "function" && reason) {
+      log(`ℹ️ 已清理失效的串口连接界面状态（${reason}）`);
+    }
+  } catch (_) { /* ignore */ }
+  window._bridgeConnActive = false;
+  setConnectionUI("disconnected");
+  return false;
+}
+
+window.reconcileConnectionUiState = reconcileConnectionUiState;
 
 function getSelectedBaudRate() {
   const el = document.getElementById("serialBaud");
@@ -1413,6 +1446,12 @@ function installSerialUnloadHandlers() {
 }
 
 installSerialUnloadHandlers();
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => reconcileConnectionUiState("page-init"), { once: true });
+} else {
+  reconcileConnectionUiState("page-init");
+}
 
 // 页面关闭/刷新时通知后端释放串口所有权
 window.addEventListener('beforeunload', function() {

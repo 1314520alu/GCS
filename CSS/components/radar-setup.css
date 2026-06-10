@@ -131,6 +131,30 @@
   line-height: 1.3;
 }
 
+.radar-action-status {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--radar-muted);
+  min-height: 1.35em;
+}
+
+.radar-action-status.is-bad {
+  color: var(--radar-bad);
+}
+
+.radar-action-status.is-warn {
+  color: var(--radar-warn);
+}
+
+.radar-action-status.is-ok {
+  color: var(--radar-good);
+}
+
+.radar-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .radar-toolbar button {
   padding: 7px 12px;
   border-radius: 8px;
@@ -638,9 +662,66 @@
   margin-bottom: 10px;
 }
 
+.radar-live-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .radar-live-head h4 {
   margin: 0;
   font-size: 16px;
+}
+
+.radar-expand-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--radar-border);
+  background: rgba(17, 24, 39, 0.88);
+  color: var(--radar-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.radar-expand-btn:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.1);
+  color: #dbeafe;
+}
+
+.radar-expand-btn.is-active {
+  border-color: rgba(59, 130, 246, 0.55);
+  color: #dbeafe;
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.radar-body.is-radar-expanded {
+  min-height: min(68vh, 680px);
+}
+
+.radar-body.is-radar-expanded .radar-live-card {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.radar-body.is-radar-expanded .radar-card-sensor,
+.radar-body.is-radar-expanded .radar-card-obstacles,
+.radar-body.is-radar-expanded .radar-card-sector {
+  display: none;
+}
+
+.radar-body.is-radar-expanded .radar-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  aspect-ratio: auto;
 }
 
 .radar-live-meta {
@@ -683,6 +764,13 @@
   animation: radar-pulse 2s ease-in-out infinite;
 }
 
+.radar-proximity-label {
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(15, 23, 42, 0.85);
+  stroke-width: 3px;
+}
+
 @keyframes radar-pulse {
   0%, 100% { opacity: 0.75; r: 4; }
   50% { opacity: 1; r: 5; }
@@ -693,6 +781,14 @@
   max-height: 220px;
   border-radius: 10px;
   border: 1px solid rgba(55, 65, 81, 0.85);
+}
+
+.radar-card-obstacles .radar-table-wrap {
+  max-height: none;
+}
+
+.radar-table tbody tr.is-empty:hover {
+  background: transparent;
 }
 
 .radar-table {
@@ -771,6 +867,17 @@
     flex: 0 0 auto;
     aspect-ratio: 1;
     max-height: min(45vh, 360px);
+  }
+
+  .radar-body.is-radar-expanded {
+    min-height: min(62vh, 520px);
+  }
+
+  .radar-body.is-radar-expanded .radar-canvas-wrap {
+    flex: 1 1 auto;
+    max-height: none;
+    aspect-ratio: auto;
+    min-height: 280px;
   }
 }
 

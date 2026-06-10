@@ -54,6 +54,7 @@ window.battery_voltage = 0;
 window.gps_fix_type = 0;
 window.gps_satellites_visible = 0;
 window._lastGpsRawMs = 0;
+window._lastGps2RawMs = 0;
 window._lastGposMs = 0;
 window.gpsTelemetry = window.gpsTelemetry || {
   instances: [

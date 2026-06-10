@@ -3,6 +3,7 @@
   const STORAGE_KEY = "gcs-radar-drafts-v2";
   const EPS = 1e-5;
   const TELEMETRY_STALE_MS = 4000;
+  const SECTOR_STALE_MS = 3000;
   const MAX_VIS_RANGE_M = 40;
   const MAX_DISTANCE_UI_MIN_M = 0.1;
   const MAX_DISTANCE_UI_MAX_M = 100;
@@ -115,10 +116,19 @@
     sectorDrag: null,
     lastRenderedTelemetryMs: -1,
     lastFreshStateKey: "",
+    radarStaticKey: "",
+    lastDynamicFingerprint: "",
+    liveExpanded: false,
   };
 
   function el(id) {
     return document.getElementById(id);
+  }
+
+  function syncPanelActiveFromDom() {
+    const panel = el("setup-panel-radar");
+    state.panelActive = !!(panel && panel.classList.contains("active"));
+    return state.panelActive;
   }
 
   function prxTypeInfo() {
@@ -134,8 +144,19 @@
   }
 
   function fcConnected() {
-    return String(window._gcsConnState || "").toLowerCase() === "connected" &&
-      typeof window.sendParamSet === "function";
+    const st = String(window._gcsConnState || "").toLowerCase();
+    if (st !== "connected") return false;
+    return !!(window.writer || (typeof writer !== "undefined" && writer)) ||
+      window._bridgeConnActive === true;
+  }
+
+  function hasLiveProximityData() {
+    const telemetry = window.radarTelemetry || {};
+    const lastIngestMs = Number(telemetry.lastIngestMs ?? telemetry.lastUpdateMs) || 0;
+    if (!lastIngestMs || Date.now() - lastIngestMs >= TELEMETRY_STALE_MS) return false;
+    const sectors = Array.isArray(telemetry.sectors) ? telemetry.sectors : [];
+    const points = Array.isArray(telemetry.points) ? telemetry.points : [];
+    return sectors.length > 0 || points.length > 0;
   }
 
   function valuesClose(a, b) {
@@ -229,21 +250,63 @@
     return getInstanceType(state.activeInstance);
   }
 
+  function telemetrySourceLabel(source) {
+    if (source === "distance_sensor") return "8扇区";
+    if (source === "obstacle_distance") return "高分辨率";
+    if (source === "merged") return "8扇区+高分辨率";
+    return "";
+  }
+
+  function getLiveRateLabel(device) {
+    const telemetry = window.radarTelemetry || {};
+    const sourceHint = telemetrySourceLabel(telemetry.source);
+    const hz132 = Number(telemetry.rxHz132) || 0;
+    const hz330 = Number(telemetry.rxHz330) || 0;
+    const hz = hz132 > 0 ? hz132 : hz330;
+    const lastIngest = Number(telemetry.lastIngestMs) || 0;
+    const ageMs = lastIngest > 0 ? Date.now() - lastIngest : Infinity;
+    const sectorN = Array.isArray(telemetry.sectors) ? telemetry.sectors.length : 0;
+
+    if (device.fresh && hz >= 0.5) {
+      const parts = [hz.toFixed(1) + " Hz"];
+      if (sourceHint) parts.push(sourceHint);
+      if (sectorN > 0) parts.push(sectorN + "扇区");
+      if (ageMs < 5000) parts.push(Math.round(ageMs) + "ms前");
+      return parts.join(" · ");
+    }
+    if (device.fresh) {
+      const parts = [];
+      if (sourceHint) parts.push(sourceHint);
+      if (sectorN > 0) parts.push(sectorN + "扇区");
+      if (ageMs < 5000) parts.push(Math.round(ageMs) + "ms前");
+      return parts.length ? parts.join(" · ") : "实时";
+    }
+    if (lastIngest > 0 && ageMs < 60000) {
+      return "超时 " + Math.round(ageMs / 1000) + "s";
+    }
+    return "等待遥测";
+  }
+
   function getDeviceStatus(instance) {
     const inst = instance != null ? instance : state.activeInstance;
     const typeValue = getInstanceType(inst);
     const enabled = typeValue !== 0;
     const telemetry = window.radarTelemetry || {};
-    const lastUpdateMs = Number(telemetry.lastUpdateMs) || 0;
+    const lastUpdateMs = Number(telemetry.lastIngestMs ?? telemetry.lastUpdateMs) || 0;
     const fresh = lastUpdateMs > 0 && (Date.now() - lastUpdateMs) < TELEMETRY_STALE_MS;
+    const liveData = hasLiveProximityData();
+    const connected = fcConnected();
 
     let statusLabel = "离线";
     let statusClass = "is-offline";
 
-    if (!enabled) {
-      statusLabel = "未启用";
-    } else if (!fcConnected()) {
+    if (!connected) {
       statusLabel = "未连接";
+    } else if (liveData) {
+      statusLabel = "在线";
+      statusClass = "is-online";
+    } else if (!enabled) {
+      statusLabel = "未启用";
     } else if (fresh) {
       statusLabel = "在线";
       statusClass = "is-online";
@@ -255,33 +318,61 @@
     }
 
     return {
-      enabled,
+      enabled: enabled || liveData,
       typeValue,
       typeLabel: typeLabel(typeValue),
       connLabel: typeBus(typeValue),
       statusLabel,
       statusClass,
-      fresh,
+      fresh: fresh && (liveData || enabled),
     };
   }
 
   function getObstacles() {
     const telemetry = window.radarTelemetry || {};
-    const list = Array.isArray(telemetry.obstacles) ? telemetry.obstacles : null;
-    if (!list || !list.length) return [];
-    return list.map((item, index) => ({
-      id: item.id != null ? item.id : index + 1,
-      distance: Number(item.distance ?? item.dist ?? 0),
-      angle: Number(item.angle ?? item.bearing ?? 0),
-      velocity: Number(item.velocity ?? item.vel ?? 0),
-      type: String(item.type || "—"),
-      status: String(item.status || "Active"),
-    }));
+    const now = Date.now();
+    const list = [];
+
+    const sectors = Array.isArray(telemetry.sectors) ? telemetry.sectors : [];
+    sectors.forEach((item, index) => {
+      const lastMs = Number(item.lastMs) || Number(telemetry.lastUpdateMs) || 0;
+      if (lastMs > 0 && now - lastMs > SECTOR_STALE_MS) return;
+      list.push({
+        id: item.id != null ? item.id : index + 1,
+        distance: Number(item.distance ?? item.dist ?? 0),
+        angle: Number(item.angle ?? item.bearing ?? 0),
+        velocity: 0,
+        type: String(item.type || "Proximity"),
+        status: String(item.status || "Active"),
+        widthDeg: Number(item.widthDeg) || 45,
+        isSector: true,
+      });
+    });
+
+    const points = Array.isArray(telemetry.points)
+      ? telemetry.points
+      : (Array.isArray(telemetry.obstacles)
+        ? telemetry.obstacles.filter((item) => !item.isSector)
+        : []);
+    points.forEach((item, index) => {
+      list.push({
+        id: item.id != null ? item.id : "p" + (index + 1),
+        distance: Number(item.distance ?? item.dist ?? 0),
+        angle: Number(item.angle ?? item.bearing ?? 0),
+        velocity: Number(item.velocity ?? item.vel ?? 0),
+        type: String(item.type || "—"),
+        status: String(item.status || "Active"),
+        widthDeg: 0,
+        isSector: false,
+      });
+    });
+
+    return list;
   }
 
   function getTelemetryLastUpdateMs() {
     const telemetry = window.radarTelemetry || {};
-    return Number(telemetry.lastUpdateMs) || 0;
+    return Number(telemetry.lastIngestMs ?? telemetry.lastUpdateMs) || 0;
   }
 
   function getFreshStateKey() {
@@ -360,16 +451,27 @@
     setDraftValue(paramKey(`IGN_WID${slot}`), Math.max(0, Math.min(127, Math.round(wid))));
   }
 
-  function renderRadarCanvas() {
-    const host = el("radar-live-svg");
-    if (!host) return;
+  function buildRadarStaticKey(visRange, showSectors) {
+    const sectorBits = [];
+    if (showSectors) {
+      for (let slot = 1; slot <= 4; slot += 1) {
+        const { ang, wid } = getSectorData(slot);
+        sectorBits.push(slot + ":" + ang + ":" + wid);
+      }
+    }
+    return visRange + "|" + (showSectors ? "1" : "0") + "|" + sectorBits.join(",");
+  }
 
-    const obstacles = getObstacles();
-    const visRange = getVisRange();
-    const center = POLAR_CENTER;
-    const radiusPx = POLAR_RADIUS_PX;
+  function buildDynamicFingerprint(obstacles) {
+    const staleBucket = Math.floor(Date.now() / 400);
+    const body = obstacles.map((o) =>
+      o.id + ":" + Math.round(o.angle) + ":" + o.distance.toFixed(2)
+    ).join(";");
+    return staleBucket + "|" + body;
+  }
+
+  function renderRadarStatic(host, visRange, center, radiusPx, showSectors) {
     const rings = [5, 10, 20, 40, 80, 100].filter((value) => value <= visRange);
-
     const ringHtml = rings.map((value) => {
       const r = (value / visRange) * radiusPx;
       return (
@@ -395,7 +497,6 @@
           ' Z" fill="url(#radarSweepGrad)" opacity="0.55"></path>' +
       "</g>";
 
-    const showSectors = SCAN_TYPES.has(getActiveType());
     let sectorsHtml = "";
     if (showSectors) {
       for (let slot = 1; slot <= 4; slot += 1) {
@@ -414,7 +515,28 @@
       }
     }
 
-    const dots = obstacles.map((item) => {
+    host.innerHTML =
+      '<defs>' +
+        '<radialGradient id="radarSweepGrad" cx="50%" cy="50%" r="50%">' +
+          '<stop offset="0%" stop-color="rgba(59,130,246,0.05)"></stop>' +
+          '<stop offset="100%" stop-color="rgba(59,130,246,0.45)"></stop>' +
+        "</radialGradient>" +
+      "</defs>" +
+      '<g id="radar-static-layer">' +
+        ringHtml +
+        crosshair +
+        sectorsHtml +
+        sweep +
+        aircraft +
+      "</g>" +
+      '<g id="radar-dynamic-layer"></g>';
+  }
+
+  function renderRadarDynamic(host, obstacles, visRange, center, radiusPx) {
+    let dynamic = host.querySelector("#radar-dynamic-layer");
+    if (!dynamic) return;
+
+    const dots = obstacles.filter((item) => !item.isSector).map((item) => {
       const pt = polarToCanvas(item.distance, item.angle, center, radiusPx, visRange);
       const tone = item.velocity > 0.2 ? "#f59e0b" : "#ef4444";
       return (
@@ -423,19 +545,46 @@
       );
     }).join("");
 
-    host.innerHTML =
-      '<defs>' +
-        '<radialGradient id="radarSweepGrad" cx="50%" cy="50%" r="50%">' +
-          '<stop offset="0%" stop-color="rgba(59,130,246,0.05)"></stop>' +
-          '<stop offset="100%" stop-color="rgba(59,130,246,0.45)"></stop>' +
-        "</radialGradient>" +
-      "</defs>" +
-      ringHtml +
-      crosshair +
-      sectorsHtml +
-      sweep +
-      dots +
-      aircraft;
+    const proximityHtml = obstacles.filter((item) => item.isSector && item.widthDeg === 45).map((item) => {
+      const arcRadius = Math.max(4, (item.distance / visRange) * radiusPx);
+      const path = sectorArcPath(center, arcRadius, item.angle, item.widthDeg);
+      const labelPt = polarToCanvas(item.distance, item.angle, center, radiusPx, visRange);
+      return (
+        '<path class="radar-proximity-sector" d="' + path + '" fill="rgba(239,68,68,0.35)" stroke="#ef4444" stroke-width="1">' +
+          '<title>' + item.distance.toFixed(1) + "m / " + item.angle.toFixed(0) + "°</title>" +
+        "</path>" +
+        '<text class="radar-proximity-label" x="' + labelPt.x.toFixed(1) + '" y="' + (labelPt.y - 4).toFixed(1) + '" ' +
+          'text-anchor="middle" font-size="11" fill="#4ade80" font-weight="600">' +
+          item.distance.toFixed(1) + "m" +
+        "</text>"
+      );
+    }).join("");
+
+    dynamic.innerHTML = proximityHtml + dots;
+  }
+
+  function renderRadarCanvas() {
+    const host = el("radar-live-svg");
+    if (!host) return;
+
+    const obstacles = getObstacles();
+    const visRange = getVisRange();
+    const center = POLAR_CENTER;
+    const radiusPx = POLAR_RADIUS_PX;
+    const showSectors = SCAN_TYPES.has(getActiveType());
+    const staticKey = buildRadarStaticKey(visRange, showSectors);
+    const dynamicFp = buildDynamicFingerprint(obstacles);
+
+    if (staticKey !== state.radarStaticKey || !host.querySelector("#radar-static-layer")) {
+      renderRadarStatic(host, visRange, center, radiusPx, showSectors);
+      state.radarStaticKey = staticKey;
+      state.lastDynamicFingerprint = "";
+    }
+
+    if (dynamicFp !== state.lastDynamicFingerprint) {
+      renderRadarDynamic(host, obstacles, visRange, center, radiusPx);
+      state.lastDynamicFingerprint = dynamicFp;
+    }
 
     renderSectorReadout();
   }
@@ -476,23 +625,35 @@
     return sorted;
   }
 
+  function getSectorSlotMap() {
+    const map = new Map();
+    getObstacles().forEach((item) => {
+      const id = Number(item.id);
+      if (!Number.isFinite(id) || id < 0 || id > 7) return;
+      if (!map.has(id) || item.isSector) map.set(id, item);
+    });
+    return map;
+  }
+
   function renderObstacleTable() {
     const tbody = el("radar-obstacle-body");
     if (!tbody) return;
 
-    const obstacles = sortObstacles(getObstacles());
-    if (!obstacles.length) {
-      tbody.innerHTML = '<tr><td colspan="3" class="muted">暂无障碍物数据</td></tr>';
-      return;
+    const slotMap = getSectorSlotMap();
+    const rows = [];
+    for (let id = 0; id <= 7; id += 1) {
+      const item = slotMap.get(id);
+      const rowClass = item ? "" : ' class="is-empty"';
+      const cellClass = item ? "" : ' class="muted"';
+      rows.push(
+        "<tr" + rowClass + ">" +
+          "<td>" + id + "</td>" +
+          "<td" + cellClass + ">" + (item ? item.distance.toFixed(1) + " m" : "--") + "</td>" +
+          "<td" + cellClass + ">" + (item ? item.angle.toFixed(0) + "°" : "--") + "</td>" +
+        "</tr>"
+      );
     }
-
-    tbody.innerHTML = obstacles.map((item) => (
-      "<tr>" +
-        "<td>" + item.id + "</td>" +
-        "<td>" + item.distance.toFixed(1) + " m</td>" +
-        "<td>" + item.angle.toFixed(0) + "°</td>" +
-      "</tr>"
-    )).join("");
+    tbody.innerHTML = rows.join("");
   }
 
   function renderTypeSelect(select, value) {
@@ -547,12 +708,23 @@
   function updateDirtyUi() {
     updateDirtyStyles();
     const dirtyCount = dirtyParamCount();
+    const connected = fcConnected();
     const dirtyNode = el("radar-dirty-count");
     if (dirtyNode) {
       dirtyNode.textContent = dirtyCount > 0 ? ("未写入修改: " + dirtyCount + " 项") : "无未写入修改";
     }
+    const readBtn = el("radar-read-btn");
+    const refreshBtn = el("radar-refresh-btn");
     const writeBtn = el("radar-write-btn");
-    if (writeBtn) writeBtn.disabled = !fcConnected() || dirtyCount === 0;
+    if (readBtn) {
+      readBtn.disabled = false;
+      readBtn.title = connected ? "从飞控读取 PRX 参数" : "请先在顶部连接飞控";
+    }
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.title = connected ? "重新读取参数" : "请先在顶部连接飞控";
+    }
+    if (writeBtn) writeBtn.disabled = !connected || dirtyCount === 0;
   }
 
   function setSwitch(id, checked) {
@@ -674,7 +846,7 @@
     }
 
     setText("radar-sync-time", "上次同步: " + formatSyncTime(state.lastSyncMs));
-    setText("radar-live-rate", device.fresh ? "实时刷新" : "等待遥测");
+    setText("radar-live-rate", getLiveRateLabel(device));
     renderInstanceTabs();
   }
 
@@ -743,7 +915,7 @@
     }
 
     setText("radar-sync-time", "上次同步: " + formatSyncTime(state.lastSyncMs));
-    setText("radar-live-rate", device.fresh ? "实时刷新" : "等待遥测");
+    setText("radar-live-rate", getLiveRateLabel(device));
 
     renderInstanceTabs();
     updateFieldVisibility();
@@ -753,30 +925,52 @@
 
   function render(force) {
     if (!state.mounted) return;
+    syncPanelActiveFromDom();
     if (!force && !state.panelActive) return;
     renderControls();
     renderRadarCanvas();
     renderObstacleTable();
+    updateDirtyUi();
   }
 
-  async function probeParams() {
-    if (!fcConnected() || typeof window.requestParamByName !== "function") return;
+  async function probeParams(options) {
+    if (!fcConnected()) return false;
+    const pmap = getParamsMap();
+    if (pmap && PARAM_KEYS.some((key) => pmap.has(key))) {
+      reconcileDraftsWithParams();
+      state.lastSyncMs = Date.now();
+      return true;
+    }
+    if (typeof window.requestParamByName !== "function") return false;
+    const quiet = !!(options && options.quiet);
+    if (!quiet) setStatus("正在读取雷达参数…", "warn");
     for (const name of PARAM_KEYS) {
       await window.requestParamByName(name).catch(() => {});
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, 15));
     }
     reconcileDraftsWithParams();
     state.lastSyncMs = Date.now();
+    return true;
   }
 
   async function readFromVehicle() {
+    if (!fcConnected()) {
+      setStatus("飞控未连接，请先在顶部选择端口并连接。", "bad");
+      if (typeof log === "function") log("⚠️ 雷达：飞控未连接，无法读取参数", "radar");
+      render(true);
+      return;
+    }
+    setStatus("正在从飞控读取参数…", "warn");
     state.drafts.clear();
     persistDrafts();
     if (typeof window.loadParams === "function") {
       await window.loadParams({ force: true }).catch(() => {});
     }
-    await probeParams();
-    setStatus("已从飞控读取参数。", "ok");
+    const ok = await probeParams();
+    if (typeof window.requestProximityTelemetryStreams === "function") {
+      window.requestProximityTelemetryStreams({ quiet: true }).catch(() => {});
+    }
+    setStatus(ok ? "已从飞控读取参数。" : "读取未完成，请确认连接后重试。", ok ? "ok" : "bad");
     render(true);
   }
 
@@ -837,9 +1031,16 @@
 
   function setStatus(text, tone) {
     const node = el("radar-write-status");
-    if (!node) return;
-    node.textContent = text;
-    node.className = "radar-write-status" + (tone ? " is-" + tone : "");
+    const inline = el("radar-action-status");
+    const className = "radar-write-status" + (tone ? " is-" + tone : "");
+    if (node) {
+      node.textContent = text;
+      node.className = className;
+    }
+    if (inline) {
+      inline.textContent = text;
+      inline.className = "radar-action-status" + (tone ? " is-" + tone : "");
+    }
   }
 
   function bindInstanceTabs() {
@@ -1091,15 +1292,49 @@
     });
   }
 
+  function setLiveExpanded(expanded) {
+    state.liveExpanded = !!expanded;
+    const body = document.querySelector("#setup-panel-radar .radar-body");
+    const btn = el("radar-expand-btn");
+    if (body) body.classList.toggle("is-radar-expanded", state.liveExpanded);
+    if (btn) {
+      btn.textContent = state.liveExpanded ? "缩小" : "放大";
+      btn.classList.toggle("is-active", state.liveExpanded);
+      btn.title = state.liveExpanded ? "恢复默认布局" : "放大雷达图占满显示区";
+    }
+  }
+
+  function bindExpandToggle() {
+    const btn = el("radar-expand-btn");
+    if (!btn || btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", () => {
+      setLiveExpanded(!state.liveExpanded);
+    });
+  }
+
   function bindToolbar() {
-    el("radar-read-btn")?.addEventListener("click", () => readFromVehicle());
-    el("radar-write-btn")?.addEventListener("click", () => writeToVehicle());
-    el("radar-refresh-btn")?.addEventListener("click", () => readFromVehicle());
+    el("radar-read-btn")?.addEventListener("click", () => {
+      readFromVehicle().catch((err) => {
+        setStatus("读取失败：" + (err?.message || String(err)), "bad");
+      });
+    });
+    el("radar-write-btn")?.addEventListener("click", () => {
+      writeToVehicle().catch((err) => {
+        setStatus("写入失败：" + (err?.message || String(err)), "bad");
+      });
+    });
+    el("radar-refresh-btn")?.addEventListener("click", () => {
+      readFromVehicle().catch((err) => {
+        setStatus("刷新失败：" + (err?.message || String(err)), "bad");
+      });
+    });
     el("radar-reset-btn")?.addEventListener("click", () => restoreDefaults());
   }
 
   function bindAll() {
     bindToolbar();
+    bindExpandToggle();
     bindInstanceTabs();
     bindOrientButtons();
     bindYawPresets();
@@ -1114,11 +1349,38 @@
   function startLiveLoop() {
     if (state.animFrame) return;
     const tick = () => {
+      syncPanelActiveFromDom();
       if (state.panelActive) {
+        if (typeof window.republishProximityTelemetry === "function") {
+          window.republishProximityTelemetry();
+        }
         renderRadarCanvas();
         renderObstacleTable();
         const device = getDeviceStatus();
-        setText("radar-live-rate", device.fresh ? "实时刷新" : "等待遥测");
+        setText("radar-live-rate", getLiveRateLabel(device));
+        const connChip = el("radar-conn-chip");
+        if (connChip) {
+          connChip.textContent = fcConnected() ? "链路已连接" : "链路未连接";
+          connChip.className = "radar-tag " + (fcConnected() ? "is-good" : "is-bad");
+        }
+        const badge = el("radar-device-badge");
+        if (badge) {
+          badge.textContent = device.statusLabel;
+          badge.className = "radar-badge " + device.statusClass;
+        }
+        updateDirtyUi();
+        if (fcConnected() && !device.fresh) {
+          const lastMs = getTelemetryLastUpdateMs();
+          if (!lastMs || Date.now() - lastMs > 3000) {
+            const now = Date.now();
+            if (!state.lastProximityReqMs || now - state.lastProximityReqMs > 5000) {
+              state.lastProximityReqMs = now;
+              if (typeof window.requestProximityTelemetryStreams === "function") {
+                window.requestProximityTelemetryStreams({ quiet: true }).catch(() => {});
+              }
+            }
+          }
+        }
       }
       state.animFrame = window.requestAnimationFrame(tick);
     };
@@ -1126,8 +1388,18 @@
   }
 
   async function activatePanel() {
-    state.panelActive = true;
-    await probeParams();
+    syncPanelActiveFromDom();
+    if (typeof window.reconcileConnectionUiState === "function") {
+      window.reconcileConnectionUiState("radar-panel");
+    }
+    if (typeof window.requestProximityTelemetryStreams === "function") {
+      window.requestProximityTelemetryStreams().catch(() => {});
+    }
+    if (getParamsMap()?.size) {
+      reconcileDraftsWithParams();
+      state.lastSyncMs = Date.now();
+    }
+    await probeParams({ quiet: true });
     render(true);
   }
 
@@ -1135,28 +1407,69 @@
     if (!el("setup-panel-radar")) return;
     state.mounted = true;
     loadDrafts();
+    if (getParamsMap()?.size) reconcileDraftsWithParams();
     bindAll();
-    state.panelActive = document.querySelector(".ov-nav-item.active[data-setup-panel='radar']") != null;
+    syncPanelActiveFromDom();
 
     window.addEventListener("gcs:setup-panel-changed", (event) => {
+      syncPanelActiveFromDom();
       const active = event.detail?.panel === RADAR_PANEL;
       state.panelActive = active;
       if (active) activatePanel().catch(() => render(true));
+      else render(true);
     });
 
-    document.addEventListener("gcs-connection", () => {
-      if (!state.panelActive) return;
+    document.addEventListener("gcs-connection", (event) => {
+      const disconnected = event.detail && event.detail.state === "disconnected";
+      if (disconnected && typeof window.clearProximityTelemetry === "function") {
+        window.clearProximityTelemetry();
+      }
+      if (event.detail && event.detail.state === "connected") {
+        if (typeof window.requestProximityTelemetryStreams === "function") {
+          window.requestProximityTelemetryStreams({ quiet: true }).catch(() => {});
+        }
+        if (syncPanelActiveFromDom()) {
+          probeParams({ quiet: true }).finally(() => render(true));
+          return;
+        }
+      }
       render(true);
     });
 
+    document.addEventListener("gcs-radar-telemetry", () => {
+      if (!syncPanelActiveFromDom()) return;
+      renderRadarCanvas();
+      renderObstacleTable();
+      const device = getDeviceStatus();
+      const connChip = el("radar-conn-chip");
+      if (connChip) {
+        connChip.textContent = fcConnected() ? "链路已连接" : "链路未连接";
+        connChip.className = "radar-tag " + (fcConnected() ? "is-good" : "is-bad");
+      }
+      const badge = el("radar-device-badge");
+      if (badge) {
+        badge.textContent = device.statusLabel;
+        badge.className = "radar-badge " + device.statusClass;
+      }
+      setText("radar-live-rate", getLiveRateLabel(device));
+    });
+
     document.addEventListener("gcs-sensor-overview-changed", () => {
-      if (!state.panelActive) return;
+      if (!syncPanelActiveFromDom()) return;
       reconcileDraftsWithParams();
+      render(true);
+    });
+
+    document.addEventListener("gcs-airframe-params-changed", () => {
+      if (!syncPanelActiveFromDom()) return;
+      reconcileDraftsWithParams();
+      state.lastSyncMs = Date.now();
       render(true);
     });
 
     startLiveLoop();
 
+    syncPanelActiveFromDom();
     if (state.panelActive) {
       activatePanel().catch(() => render(true));
     } else {
@@ -1166,5 +1479,9 @@
 
   window.radarSetupRender = render;
 
-  window.addEventListener("DOMContentLoaded", mount);
+  if (document.readyState === "loading") {
+    window.addEventListener("DOMContentLoaded", mount);
+  } else {
+    mount();
+  }
 })();

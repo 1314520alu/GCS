@@ -1009,6 +1009,7 @@
               <div class="radar-toolbar-stack">
                 <button type="button" id="radar-read-btn">从飞控读取</button>
                 <strong id="radar-dirty-count" class="radar-dirty-count">无未写入修改</strong>
+                <span id="radar-action-status" class="radar-action-status" aria-live="polite"></span>
               </div>
               <button type="button" id="radar-write-btn" class="radar-btn-primary">写入飞控</button>
               <button type="button" id="radar-refresh-btn">刷新</button>
@@ -1022,7 +1023,7 @@
               <section class="radar-card radar-card-sensor">
                 <div class="radar-card-head">
                   <h4>传感器</h4>
-                  <span id="radar-device-badge" class="radar-badge is-offline">离线</span>
+                  <span id="radar-device-badge" class="radar-badge is-offline">未连接</span>
                 </div>
                 <div class="radar-fields radar-fields-sensor-grid">
                   <label class="radar-field">
@@ -1157,7 +1158,10 @@
             <div class="radar-right">
               <section class="radar-card radar-live-card">
                 <div class="radar-live-head">
-                  <h4>实时雷达</h4>
+                  <div class="radar-live-title-row">
+                    <h4>实时雷达</h4>
+                    <button type="button" id="radar-expand-btn" class="radar-expand-btn" title="放大雷达图占满显示区">放大</button>
+                  </div>
                   <span id="radar-live-rate" class="radar-live-meta">等待遥测</span>
                 </div>
                 <div class="radar-canvas-wrap" id="radar-canvas-wrap">
@@ -1432,6 +1436,7 @@
 <script src="JS/mission/terrain-survey-planner.js?v=20260531e" defer></script>
 <script src="JS/mission/terrain-plan-advisor.js" defer></script>
 <script src="JS/services/terrain-mavlink.js?v=20260531d" defer></script>
+<script src="JS/core/proximity-telemetry.js" defer></script>
 <script src="JS/core/mavlink.js?v=1" defer></script>
 <script src="JS/core/mavlink-helpers.js" defer></script>
 <script src="JS/core/ardupilot-telemetry.js" defer></script>

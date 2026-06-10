@@ -3,7 +3,7 @@
   const RTK_PANEL = "rtk";
   const STORAGE_KEY = "gcs-gps-drafts-v1";
   const EPS = 1e-5;
-  const TELEMETRY_STALE_MS = 5000;
+  const TELEMETRY_STALE_MS = 3000;
 
   function fieldLabel(zh, en) {
     return (
@@ -28,6 +28,10 @@
       "GPS_TYPE2",
       "GPS_RATE_MS2",
       "GPS_GNSS_MODE2",
+      "GPS_HDOP_GOOD",
+      "GPS_MIN_SATS",
+      "GPS_AUTO_CONFIG",
+      "GPS_SBAS_MODE",
     ],
   };
 
@@ -109,9 +113,13 @@
     "gps-rate-0": "GPS_RATE_MS",
     "gps-rate-1": "GPS_RATE_MS2",
     "gps-hdop-good": "GPS_HDOP_GOOD",
+    "gps-hdop-good-1": "GPS_HDOP_GOOD",
     "gps-min-sats": "GPS_MIN_SATS",
+    "gps-min-sats-1": "GPS_MIN_SATS",
     "gps-auto-config": "GPS_AUTO_CONFIG",
+    "gps-auto-config-1": "GPS_AUTO_CONFIG",
     "gps-sbas-mode": "GPS_SBAS_MODE",
+    "gps-sbas-mode-1": "GPS_SBAS_MODE",
     "gps-pos1-x": "GPS_POS1_X",
     "gps-pos1-y": "GPS_POS1_Y",
     "gps-pos1-z": "GPS_POS1_Z",
@@ -226,6 +234,23 @@
     5: "RTK 浮点",
     6: "RTK 固定",
   };
+
+  const SHARED_FIELD_MIRROR_IDS = {
+    GPS_HDOP_GOOD: ["gps-hdop-good", "gps-hdop-good-1"],
+    GPS_MIN_SATS: ["gps-min-sats", "gps-min-sats-1"],
+    GPS_AUTO_CONFIG: ["gps-auto-config", "gps-auto-config-1"],
+    GPS_SBAS_MODE: ["gps-sbas-mode", "gps-sbas-mode-1"],
+  };
+
+  function syncMirroredFields(key, value) {
+    const ids = SHARED_FIELD_MIRROR_IDS[key];
+    if (!ids) return;
+    ids.forEach((id) => {
+      const node = el(id);
+      if (!node || document.activeElement === node) return;
+      node.value = String(value);
+    });
+  }
 
   const state = {
     mounted: false,
@@ -485,6 +510,27 @@
     return window.gpsTelemetry || {};
   }
 
+  function readInstNum(item, key) {
+    const value = item[key];
+    if (value == null || value === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function resolveDisplayMetrics(item, fixType) {
+    let altM = readInstNum(item, "altM");
+    if (fixType < 3 && (altM == null || Math.abs(altM) < 0.001)) altM = null;
+
+    let hAccM = readInstNum(item, "hAccM");
+    let vAccM = readInstNum(item, "vAccM");
+    const eph = readInstNum(item, "eph");
+    const epv = readInstNum(item, "epv");
+    if (hAccM == null && eph != null && eph > 0) hAccM = eph * 5;
+    if (vAccM == null && epv != null && epv > 0) vAccM = epv * 5;
+
+    return { altM, hAccM, vAccM };
+  }
+
   function getInstances() {
     const telemetry = Array.isArray(getTelemetryRoot().instances)
       ? getTelemetryRoot().instances
@@ -501,6 +547,7 @@
       const enabled = typeValue !== 0;
       const fixType = Number(item.fixType) || 0;
       const gnssMask = getBitmaskValue(gnssKey, CONSTELLATIONS);
+      const metrics = resolveDisplayMetrics(item, fixType);
 
       return {
         index,
@@ -516,16 +563,16 @@
         fresh,
         lastUpdateMs,
         sats: Number(item.satellitesVisible) || 0,
-        lat: Number(item.lat),
-        lon: Number(item.lon),
-        altM: Number(item.altM),
-        eph: Number(item.eph),
-        epv: Number(item.epv),
-        velMps: Number(item.velMps),
-        hAccM: Number(item.hAccM),
-        vAccM: Number(item.vAccM),
-        velAccMps: Number(item.velAccMps),
-        yawDeg: Number(item.yawDeg),
+        lat: readInstNum(item, "lat"),
+        lon: readInstNum(item, "lon"),
+        altM: metrics.altM,
+        eph: readInstNum(item, "eph"),
+        epv: readInstNum(item, "epv"),
+        velMps: readInstNum(item, "velMps"),
+        hAccM: metrics.hAccM,
+        vAccM: metrics.vAccM,
+        velAccMps: readInstNum(item, "velAccMps"),
+        yawDeg: readInstNum(item, "yawDeg"),
         gnssMask,
       };
     });
@@ -604,6 +651,20 @@
     ];
   }
 
+  function instanceFieldSuffix(index) {
+    return index === 0 ? "" : "-" + index;
+  }
+
+  function buildSharedReceiverFields(instanceIndex) {
+    const suffix = instanceFieldSuffix(instanceIndex);
+    return (
+      '<label class="gps-field">' + fieldLabel("HDOP 良好阈值", "HDOP Good Threshold") + '<input id="gps-hdop-good' + suffix + '" type="number" step="1"></label>' +
+      '<label class="gps-field">' + fieldLabel("最少卫星数", "Min Satellites") + '<input id="gps-min-sats' + suffix + '" type="number" step="1"></label>' +
+      '<label class="gps-field">' + fieldLabel("自动配置", "Auto Config") + '<select id="gps-auto-config' + suffix + '"></select></label>' +
+      '<label class="gps-field">' + fieldLabel("SBAS", "SBAS") + '<select id="gps-sbas-mode' + suffix + '"></select></label>'
+    );
+  }
+
   function buildInstanceCard(instance) {
     const realtimeRows = buildRealtimeRows(instance);
     const freshnessLabel = instance.fresh ? "实时" : "过期";
@@ -656,12 +717,7 @@
               fieldLabel("GNSS 模式", "GNSS Mode") +
               '<div id="gps-gnss-' + instance.index + '" class="gps-check-grid"></div>' +
             "</div>" +
-            (instance.index === 0
-              ? '<label class="gps-field">' + fieldLabel("HDOP 良好阈值", "HDOP Good Threshold") + '<input id="gps-hdop-good" type="number" step="1"></label>' +
-                '<label class="gps-field">' + fieldLabel("最少卫星数", "Min Satellites") + '<input id="gps-min-sats" type="number" step="1"></label>' +
-                '<label class="gps-field">' + fieldLabel("自动配置", "Auto Config") + '<select id="gps-auto-config"></select></label>' +
-                '<label class="gps-field">' + fieldLabel("SBAS", "SBAS") + '<select id="gps-sbas-mode"></select></label>'
-              : "") +
+            buildSharedReceiverFields(instance.index) +
           "</div>" +
         "</div>" +
       "</article>"
@@ -669,19 +725,46 @@
   }
 
   function buildEmptyGps2Card() {
+    const emptyInstance = {
+      index: 1,
+      enabled: false,
+      fresh: false,
+      eph: NaN,
+      epv: NaN,
+      fixType: 0,
+      fixLabel: "无 GPS",
+      statusClass: "is-muted",
+    };
+
     return (
       '<article class="gps-instance-card" data-gps-instance="1">' +
         '<div class="gps-instance-head">' +
           '<div class="gps-instance-title">' +
             '<span class="gps-instance-eyebrow">GPS #2</span>' +
             '<div class="gps-instance-name">副接收机未启用</div>' +
+            '<div class="gps-instance-meta">' +
+              '<span class="gps-inline-tag">卫星 0</span>' +
+              '<span class="gps-inline-tag">未启用</span>' +
+            "</div>" +
+          "</div>" +
+          '<div class="gps-head-right">' +
+            '<span class="gps-fix-badge is-muted">无 GPS</span>' +
+            buildInstanceDopHtml(emptyInstance) +
           "</div>" +
         "</div>" +
-        '<div class="gps-instance-empty">' +
-          '<div class="gps-empty-title">启用 GPS2</div>' +
-          '<div class="gps-empty-copy">GPS_TYPE2 为 0。启用后可使用双 GPS 融合、冗余或移动基线航向。</div>' +
-          '<label class="gps-field">' + fieldLabel("接收机类型", "Receiver Type") + '<select id="gps2-enable-type"></select></label>' +
-          '<button type="button" id="gps2-enable-btn" class="gps-enable-btn">启用 GPS2</button>' +
+        '<div class="gps-instance-body">' +
+          '<div class="gps-instance-primary-col">' +
+            '<div class="gps-real-grid">' +
+              '<div class="gps-empty-title">启用 GPS2</div>' +
+              '<div class="gps-empty-copy">GPS_TYPE2 为 0。启用后可使用双 GPS 融合、冗余或移动基线航向。</div>' +
+            "</div>" +
+          "</div>" +
+          '<div class="gps-fields-grid">' +
+            '<label class="gps-field">' + fieldLabel("接收机类型", "Receiver Type") + '<select id="gps2-enable-type"></select></label>' +
+            '<div class="gps-instance-actions">' +
+              '<button type="button" id="gps2-enable-btn" class="gps-enable-btn gps-instance-param-btn">启用 GPS2</button>' +
+            "</div>" +
+          "</div>" +
         "</div>" +
       "</article>"
     );
@@ -769,13 +852,16 @@
       renderBitmask(el("gps-gnss-" + instance.index), instance.gnssKey, CONSTELLATIONS, instance.gnssMask);
     });
 
-    renderSelect(el("gps-auto-config"), AUTO_CONFIG_OPTIONS, getDraftValue("GPS_AUTO_CONFIG"));
-    renderSelect(el("gps-sbas-mode"), SBAS_OPTIONS, getDraftValue("GPS_SBAS_MODE"));
-
-    const hdopInput = el("gps-hdop-good");
-    const minSatsInput = el("gps-min-sats");
-    if (hdopInput) hdopInput.value = String(Number(getDraftValue("GPS_HDOP_GOOD")) || DEFAULTS.GPS_HDOP_GOOD);
-    if (minSatsInput) minSatsInput.value = String(Number(getDraftValue("GPS_MIN_SATS")) || DEFAULTS.GPS_MIN_SATS);
+    [0, 1].forEach((index) => {
+      if (index === 1 && !instances.find((item) => item.index === 1 && item.enabled)) return;
+      const suffix = instanceFieldSuffix(index);
+      renderSelect(el("gps-auto-config" + suffix), AUTO_CONFIG_OPTIONS, getDraftValue("GPS_AUTO_CONFIG"));
+      renderSelect(el("gps-sbas-mode" + suffix), SBAS_OPTIONS, getDraftValue("GPS_SBAS_MODE"));
+      const hdopInput = el("gps-hdop-good" + suffix);
+      const minSatsInput = el("gps-min-sats" + suffix);
+      if (hdopInput) hdopInput.value = String(Number(getDraftValue("GPS_HDOP_GOOD")) || DEFAULTS.GPS_HDOP_GOOD);
+      if (minSatsInput) minSatsInput.value = String(Number(getDraftValue("GPS_MIN_SATS")) || DEFAULTS.GPS_MIN_SATS);
+    });
 
     const gps2Enable = el("gps2-enable-type");
     if (gps2Enable) {
@@ -988,6 +1074,7 @@
     const prevValue = getDraftValue(key);
     const prevEnabled = Number(prevValue) !== 0;
     setDraftValue(key, nextValue);
+    syncMirroredFields(key, nextValue);
     updateDirtyUi();
 
     const isTypeKey = key === "GPS_TYPE" || key === "GPS_TYPE2";
@@ -1008,6 +1095,7 @@
         const key = input.getAttribute("data-param-key") || PARAM_ID_MAP[input.id];
         if (!key) return;
         setDraftValue(key, Number(input.value));
+        syncMirroredFields(key, Number(input.value));
         updateDirtyUi();
       });
     });
@@ -1059,6 +1147,9 @@
 
   async function activatePanel() {
     state.panelActive = true;
+    if (typeof window.requestGpsTelemetryStreams === "function") {
+      await window.requestGpsTelemetryStreams({ quiet: true }).catch(() => {});
+    }
     await probeGpsParams();
     render(true);
   }

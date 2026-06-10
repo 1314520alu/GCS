@@ -8,6 +8,21 @@
  */
 (function () {
   const MAV_CMD_SET_MESSAGE_INTERVAL = 511;
+  const MAV_CMD_REQUEST_MESSAGE = 512;
+
+  /** GPS 设置页：连接后与打开页面时额外请求双路 GPS 遥测 */
+  const GPS_TELEMETRY_MESSAGES = [
+    { id: 24, hz: 5, name: "GPS_RAW_INT" },
+    { id: 124, hz: 5, name: "GPS2_RAW_INT" },
+    { id: 127, hz: 2, name: "GPS_RTK" },
+    { id: 128, hz: 2, name: "GPS2_RTK" },
+  ];
+
+  /** 雷达/邻近专用：连接后与雷达页打开时额外请求 */
+  const PROXIMITY_TELEMETRY_MESSAGES = [
+    { id: 132, hz: 10, name: "DISTANCE_SENSOR" },
+    { id: 330, hz: 5, name: "OBSTACLE_DISTANCE" },
+  ];
 
   const DEFAULT_STREAM_HZ = {
     EXTRA1: 4,
@@ -22,7 +37,10 @@
   const MESSAGE_INTERVALS_AP4 = [
     { id: 30, hz: 10, name: "ATTITUDE" },
     { id: 33, hz: 5, name: "GLOBAL_POSITION_INT" },
-    { id: 24, hz: 2, name: "GPS_RAW_INT" },
+    { id: 24, hz: 5, name: "GPS_RAW_INT" },
+    { id: 124, hz: 5, name: "GPS2_RAW_INT" },
+    { id: 127, hz: 2, name: "GPS_RTK" },
+    { id: 128, hz: 2, name: "GPS2_RTK" },
     { id: 74, hz: 4, name: "VFR_HUD" },
     { id: 49, hz: 1, name: "GPS_GLOBAL_ORIGIN" },
     { id: 242, hz: 1, name: "HOME_POSITION" },
@@ -30,6 +48,8 @@
     { id: 1, hz: 2, name: "SYS_STATUS" },
     { id: 65, hz: 2, name: "RC_CHANNELS" },
     { id: 193, hz: 1, name: "EKF_STATUS_REPORT" },
+    { id: 132, hz: 10, name: "DISTANCE_SENSOR" },
+    { id: 330, hz: 5, name: "OBSTACLE_DISTANCE" },
   ];
 
   const REQUEST_DATA_STREAMS = [
@@ -166,6 +186,62 @@
     }
   }
 
+  async function setMessageInterval(id, hz) {
+    if (typeof window.sendCommandLong !== "function") return false;
+    const intervalUs = Math.round(1e6 / hz);
+    try {
+      await window.sendCommandLong(MAV_CMD_SET_MESSAGE_INTERVAL, id, intervalUs, 0, 0, 0, 0, 0, 0);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function requestMessageStream(id, hz) {
+    if (typeof window.sendCommandLong !== "function") return false;
+    const intervalUs = hz > 0 ? Math.round(1e6 / hz) : 0;
+    try {
+      await window.sendCommandLong(MAV_CMD_REQUEST_MESSAGE, id, intervalUs, 0, 0, 0, 0, 0, 0);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** 请求 GPS1/GPS2 实时数据（SET_MESSAGE_INTERVAL + REQUEST_MESSAGE 双通道，兼容 MP 行为） */
+  async function requestGpsTelemetryStreams(options) {
+    if (window._gcsConnState !== "connected") return false;
+    const quiet = !!(options && options.quiet);
+    let sent = 0;
+    for (const { id, hz, name } of GPS_TELEMETRY_MESSAGES) {
+      if (await setMessageInterval(id, hz)) sent += 1;
+      await sleep(60);
+      if (await requestMessageStream(id, hz)) sent += 1;
+      await sleep(60);
+      if (!quiet && typeof log === "function") {
+        log(`📡 已请求 GPS 遥测 ${name} (#${id}) @ ${hz}Hz`, "gps-telemetry");
+      }
+    }
+    return sent > 0;
+  }
+
+  /** 请求雷达实时数据（SET_MESSAGE_INTERVAL + REQUEST_MESSAGE 双通道，兼容 MP 行为） */
+  async function requestProximityTelemetryStreams(options) {
+    if (window._gcsConnState !== "connected") return false;
+    const quiet = !!(options && options.quiet);
+    let sent = 0;
+    for (const { id, hz, name } of PROXIMITY_TELEMETRY_MESSAGES) {
+      if (await setMessageInterval(id, hz)) sent += 1;
+      await sleep(60);
+      if (await requestMessageStream(id, hz)) sent += 1;
+      await sleep(60);
+      if (!quiet && typeof log === "function") {
+        log(`📡 已请求邻近遥测 ${name} (#${id}) @ ${hz}Hz`, "radar-telemetry");
+      }
+    }
+    return sent > 0;
+  }
+
   async function applyMessageIntervals() {
     if (typeof window.sendCommandLong !== "function") return;
     for (const { id, hz } of MESSAGE_INTERVALS_AP4) {
@@ -213,6 +289,9 @@
       if (typeof log === "function") log("✅ 已发送 SET_MESSAGE_INTERVAL（单消息流控）");
     }
 
+    await sleep(200);
+    await requestGpsTelemetryStreams({ quiet: true });
+
     if (profile !== "mav1") {
       await sleep(300);
       await requestDataStreamsOnce();
@@ -235,6 +314,8 @@
           await applyMessageIntervals();
         }
         await requestDataStreamsOnce();
+        await requestGpsTelemetryStreams({ quiet: true });
+        await requestProximityTelemetryStreams({ quiet: true });
       } catch (e) {
         if (typeof log === "function") log(`⚠️ 周期遥测维护失败: ${e?.message || e}`);
       }
@@ -245,5 +326,7 @@
   window.detectArdupilotTelemetryProfile = detectTelemetryProfile;
   window.applyConnectionTelemetrySetup = applyConnectionTelemetrySetup;
   window.startTelemetryMaintenance = startTelemetryMaintenance;
+  window.requestGpsTelemetryStreams = requestGpsTelemetryStreams;
+  window.requestProximityTelemetryStreams = requestProximityTelemetryStreams;
   window.buildArdupilotStreamRateParams = buildStreamRateParams;
 })();

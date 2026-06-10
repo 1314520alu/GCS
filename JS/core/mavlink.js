@@ -79,42 +79,123 @@ function ensureGpsTelemetryState() {
   const root = window.gpsTelemetry || {};
   if (!Array.isArray(root.instances) || root.instances.length < 2) {
     root.instances = [
-      { index: 0, label: "GPS1" },
-      { index: 1, label: "GPS2" },
+      { index: 0, label: "GPS1", rawMsgId: 24, fixType: 0, satellitesVisible: 0, lastUpdateMs: 0 },
+      { index: 1, label: "GPS2", rawMsgId: 124, fixType: 0, satellitesVisible: 0, lastUpdateMs: 0 },
     ];
+  } else {
+    for (let i = 0; i < 2; i++) {
+      const item = root.instances[i] || (root.instances[i] = {});
+      item.index = i;
+      item.label = i === 0 ? "GPS1" : "GPS2";
+      item.rawMsgId = i === 0 ? 24 : 124;
+    }
   }
-  root.instances = root.instances.map((item, index) => ({
-    index,
-    label: index === 0 ? "GPS1" : "GPS2",
-    rawMsgId: index === 0 ? 24 : 124,
-    fixType: 0,
-    satellitesVisible: 0,
-    lat: null,
-    lon: null,
-    altM: null,
-    eph: null,
-    epv: null,
-    velMps: null,
-    cogDeg: null,
-    hAccM: null,
-    vAccM: null,
-    velAccMps: null,
-    yawDeg: null,
-    lastUpdateMs: 0,
-    ...item,
-  }));
-  root.rtk = {
-    source: "none",
-    injectStatus: "idle",
-    health: "offline",
-    lastCorrectionMs: 0,
-    ageSec: null,
-    latencyMs: null,
-    boundInstance: 0,
-    ...(root.rtk || {}),
-  };
+  if (!root.rtk || typeof root.rtk !== "object") {
+    root.rtk = {
+      source: "none",
+      injectStatus: "idle",
+      health: "offline",
+      lastCorrectionMs: 0,
+      ageSec: null,
+      latencyMs: null,
+      boundInstance: 0,
+    };
+  }
   window.gpsTelemetry = root;
   return root;
+}
+
+const GPS_FIX_DOWNGRADE_SAMPLES = 3;
+const GPS_FIX_DOWNGRADE_MS = 2500;
+/** HDOP → 水平/垂直精度粗估（UERE ≈ 5 m，与 MP 显示量级接近） */
+const GPS_HDOP_UERE_M = 5;
+
+function readGpsAccuracyFromMm(mm) {
+  if (!Number.isFinite(mm) || mm <= 0 || mm === 4294967295) return null;
+  return mm / 1000;
+}
+
+function estimateAccuracyFromDop(hdop) {
+  const d = Number(hdop);
+  if (!Number.isFinite(d) || d <= 0) return null;
+  return d * GPS_HDOP_UERE_M;
+}
+
+function resolveGpsAccuracyM(inst) {
+  let hAccM = Number.isFinite(inst.hAccM) && inst.hAccM > 0 ? inst.hAccM : null;
+  let vAccM = Number.isFinite(inst.vAccM) && inst.vAccM > 0 ? inst.vAccM : null;
+  if (hAccM == null) hAccM = estimateAccuracyFromDop(inst.eph);
+  if (vAccM == null) vAccM = estimateAccuracyFromDop(inst.epv);
+  return { hAccM, vAccM };
+}
+
+function applyGpsAltitudeM(inst, altMm, payload, dv) {
+  let altM = altMm / 1000;
+  if (payload.length >= 34) {
+    const altEllMm = dv.getUint32(30, true);
+    if (Math.abs(altM) < 0.001 && altEllMm > 0 && altEllMm !== 4294967295) {
+      altM = altEllMm / 1000;
+    }
+  }
+  const prevAlt = Number(inst.altM);
+  const fix = Number(inst.fixType) || 0;
+  if (fix < 3 && Math.abs(altM) < 0.001) {
+    inst.altM = null;
+    return;
+  }
+  if (Math.abs(altM) > 0.01 || !Number.isFinite(prevAlt) || Math.abs(prevAlt) < 0.01) {
+    inst.altM = altM;
+    return;
+  }
+  // 流动站偶发 alt=0 时保留上一有效高度
+  inst.altM = prevAlt;
+}
+
+function gpsHasValidCoords(lat, lon) {
+  return Math.abs(lat) > 1e-6 || Math.abs(lon) > 1e-6;
+}
+
+function sanitizeGpsFixType(rawFix, lat, lon, prevFix) {
+  let fix = Math.max(0, Math.min(8, Number(rawFix) || 0));
+  const prev = Math.max(0, Number(prevFix) || 0);
+  const hasCoords = gpsHasValidCoords(lat, lon);
+
+  if (fix >= 2 && !hasCoords) {
+    fix = prev > 0 ? prev : 1;
+  } else if (fix === 0 && hasCoords && prev >= 2) {
+    fix = prev;
+  } else if (fix === 1 && hasCoords && prev >= 3) {
+    fix = prev;
+  }
+  return fix;
+}
+
+function applyGpsInstanceFix(inst, rawFix, lat, lon) {
+  const now = Date.now();
+  const prev = Number(inst.fixType) || 0;
+  const sanitized = sanitizeGpsFixType(rawFix, lat, lon, prev);
+  inst.rawFixType = sanitized;
+
+  if (sanitized > prev) {
+    inst.fixType = sanitized;
+    inst.fixTypeSinceMs = now;
+    inst.fixDowngradeSamples = 0;
+    return;
+  }
+  if (sanitized === prev) {
+    inst.fixDowngradeSamples = 0;
+    return;
+  }
+
+  inst.fixDowngradeSamples = (inst.fixDowngradeSamples || 0) + 1;
+  const heldMs = now - (inst.fixTypeSinceMs || 0);
+  const samplesOk = inst.fixDowngradeSamples >= GPS_FIX_DOWNGRADE_SAMPLES;
+  const timeOk = heldMs >= GPS_FIX_DOWNGRADE_MS && inst.fixDowngradeSamples >= 2;
+  if (samplesOk || timeOk) {
+    inst.fixType = sanitized;
+    inst.fixTypeSinceMs = now;
+    inst.fixDowngradeSamples = 0;
+  }
 }
 
 function refreshNavGuidanceValidity() {
@@ -495,20 +576,26 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
     const gpsState = ensureGpsTelemetryState();
     const gpsIndex = id === 124 ? 1 : 0;
     const inst = gpsState.instances[gpsIndex];
-    const newFix = dv.getUint8(28);
-    const prevFix = Number(window.gps_fix_type) || 0;
-    window.gps_fix_type = Math.max(prevFix, newFix);
-    inst.fixType = newFix;
+    const lat = dv.getInt32(8, true) / 1e7;
+    const lon = dv.getInt32(12, true) / 1e7;
+    const rawFix = dv.getUint8(28);
+    applyGpsInstanceFix(inst, rawFix, lat, lon);
+    if (gpsIndex === 0) {
+      const prevFix = Number(window.gps_fix_type) || 0;
+      window.gps_fix_type = Math.max(prevFix, inst.fixType);
+    }
     if (payload.length >= 30) {
       const newSats = dv.getUint8(29);
-      const prevSats = Number(window.gps_satellites_visible) || 0;
-      window.gps_satellites_visible = Math.max(prevSats, newSats);
+      if (gpsIndex === 0) {
+        const prevSats = Number(window.gps_satellites_visible) || 0;
+        window.gps_satellites_visible = Math.max(prevSats, newSats);
+      }
       inst.satellitesVisible = newSats;
     }
     if (payload.length >= 24) {
-      inst.lat = dv.getInt32(8, true) / 1e7;
-      inst.lon = dv.getInt32(12, true) / 1e7;
-      inst.altM = dv.getInt32(16, true) / 1000;
+      inst.lat = lat;
+      inst.lon = lon;
+      applyGpsAltitudeM(inst, dv.getInt32(16, true), payload, dv);
       inst.eph = dv.getUint16(20, true) / 100;
       inst.epv = dv.getUint16(22, true) / 100;
     }
@@ -519,9 +606,35 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
       const cog = dv.getUint16(26, true);
       inst.cogDeg = cog === 65535 ? null : cog / 100;
     }
+    if (payload.length >= 38) {
+      inst.hAccM = readGpsAccuracyFromMm(dv.getUint32(34, true));
+    }
+    if (payload.length >= 42) {
+      inst.vAccM = readGpsAccuracyFromMm(dv.getUint32(38, true));
+    }
+    if (payload.length >= 46) {
+      inst.velAccMps = readGpsAccuracyFromMm(dv.getUint32(42, true));
+    }
+    if (payload.length >= 48) {
+      const hdg = dv.getInt16(46, true);
+      inst.yawDeg = hdg < 0 ? null : hdg / 100;
+    }
+    const acc = resolveGpsAccuracyM(inst);
+    inst.hAccM = acc.hAccM;
+    inst.vAccM = acc.vAccM;
     inst.lastUpdateMs = Date.now();
-    window._lastGpsRawMs = Date.now();
+    if (gpsIndex === 0) window._lastGpsRawMs = Date.now();
+    if (gpsIndex === 1) window._lastGps2RawMs = Date.now();
     refreshNavGuidanceValidity();
+    emitTelemetryFrame();
+  }
+
+  if ((id === 127 || id === 128) && payload.length >= 4) {
+    const gpsState = ensureGpsTelemetryState();
+    const rtk = gpsState.rtk || {};
+    rtk.lastCorrectionMs = Date.now();
+    rtk.boundInstance = id === 128 ? 1 : 0;
+    gpsState.rtk = rtk;
     emitTelemetryFrame();
   }
 
@@ -735,28 +848,40 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
     parseEkfStatusReport(payload);
   }
 
-  // DISTANCE_SENSOR：current_distance 在 offset 8（cm），用于概览测距
-  if (id === 132 && payload.length >= 12) {
-    const dv = mavlinkPayloadView(payload);
-    window._rangefinderTelemetry = {
-      currentCm: dv.getUint16(8, true),
-      sensorId: dv.getUint8(11),
-      t: Date.now(),
-    };
+  // DISTANCE_SENSOR (#132)：水平 8 扇区邻近 + 非水平测距仪分流
+  if (id === 132 && payload.length >= 13) {
+    if (typeof window.ingestProximityDistanceSensor === "function") {
+      window.ingestProximityDistanceSensor(payload);
+    } else {
+      const dv = mavlinkPayloadView(payload);
+      window._rangefinderTelemetry = {
+        currentCm: dv.getUint16(8, true),
+        sensorId: dv.getUint8(11),
+        t: Date.now(),
+      };
+    }
   }
 
-  // OBSTACLE_DISTANCE (330)：邻近/雷达障碍物距离数组 → 雷达页实时视图
-  if (id === 330 && payload.length >= 153) {
+  // OBSTACLE_DISTANCE (#330)：可选高分辨率点阵，合并进 radarTelemetry
+  // Wire layout (mavlink_obstacle_distance_t, LEN 167 / MIN_LEN 158):
+  // time_usec(8) + distances[72](144) + min_distance(2) + max_distance(2) +
+  // sensor_type(1) + increment(1) + increment_f(4) + angle_offset(4) + frame(1)
+  if (id === 330 && payload.length >= 152) {
     const dv = mavlinkPayloadView(payload);
-    const increment = dv.getFloat32(153, true);
-    const inc = Number.isFinite(increment) && increment > 0 ? increment : 5;
-    const angleOffset = payload.length >= 169 ? dv.getFloat32(165, true) : 0;
+    const maxDistanceCm = payload.length >= 156 ? dv.getUint16(154, true) : 0;
+    const incrementU8 = payload.length >= 158 ? dv.getUint8(157) : 0;
+    const incrementF = payload.length >= 162 ? dv.getFloat32(158, true) : NaN;
+    const inc = Number.isFinite(incrementF) && incrementF !== 0
+      ? incrementF
+      : (incrementU8 > 0 ? incrementU8 : 5);
+    const angleOffset = payload.length >= 166 ? dv.getFloat32(162, true) : 0;
     const obstacles = [];
     for (let i = 0; i < 72; i += 1) {
-      const offset = 9 + i * 2;
+      const offset = 8 + i * 2;
       if (offset + 1 >= payload.length) break;
       const cm = dv.getUint16(offset, true);
       if (cm === 65535 || cm === 0) continue;
+      if (maxDistanceCm > 0 && cm === maxDistanceCm + 1) continue;
       obstacles.push({
         id: i + 1,
         distance: cm / 100,
@@ -766,10 +891,13 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
         status: "Active",
       });
     }
-    window.radarTelemetry = {
-      obstacles,
-      lastUpdateMs: Date.now(),
-    };
+    if (typeof window.ingestProximityObstacleDistance === "function") {
+      window.ingestProximityObstacleDistance(obstacles, {
+        angleOffset,
+        incrementDeg: inc,
+        maxDistanceM: maxDistanceCm > 0 ? maxDistanceCm / 100 : null,
+      });
+    }
   }
 
   // HIGHRES_IMU: time_usec(8) + xacc,yacc,zacc(float) — 加速度 m/s²，换算为 g
