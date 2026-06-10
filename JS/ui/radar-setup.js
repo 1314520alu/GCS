@@ -4,6 +4,12 @@
   const EPS = 1e-5;
   const TELEMETRY_STALE_MS = 4000;
   const MAX_VIS_RANGE_M = 40;
+  const MAX_DISTANCE_UI_MIN_M = 0.1;
+  const MAX_DISTANCE_UI_MAX_M = 100;
+  const MIN_DISTANCE_UI_MIN_M = 0.1;
+  const MIN_DISTANCE_UI_MAX_M = 4;
+  const ALT_MIN_UI_MIN_M = 0;
+  const ALT_MIN_UI_MAX_M = 20;
   const POLAR_CENTER = 200;
   const POLAR_RADIUS_PX = 168;
   const INSTANCE_COUNT = 5;
@@ -98,14 +104,17 @@
   const state = {
     mounted: false,
     panelActive: false,
+    hasActivated: false,
     drafts: new Map(),
     activeInstance: 1,
     sortKey: "distance",
     sortAsc: true,
     lastSyncMs: 0,
-    animFrame: 0,
+    liveTimer: 0,
     selectedSectorSlot: null,
     sectorDrag: null,
+    lastRenderedTelemetryMs: -1,
+    lastFreshStateKey: "",
   };
 
   function el(id) {
@@ -268,6 +277,23 @@
       type: String(item.type || "—"),
       status: String(item.status || "Active"),
     }));
+  }
+
+  function getTelemetryLastUpdateMs() {
+    const telemetry = window.radarTelemetry || {};
+    return Number(telemetry.lastUpdateMs) || 0;
+  }
+
+  function getFreshStateKey() {
+    const device = getDeviceStatus();
+    return [
+      fcConnected() ? "connected" : "disconnected",
+      device.statusLabel,
+      device.statusClass,
+      device.fresh ? "fresh" : "stale",
+      formatSyncTime(state.lastSyncMs),
+      state.activeInstance,
+    ].join("|");
   }
 
   function polarToCanvas(distance, angleDeg, center, radiusPx, maxRange) {
@@ -456,7 +482,7 @@
 
     const obstacles = sortObstacles(getObstacles());
     if (!obstacles.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="muted">暂无障碍物数据</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="3" class="muted">暂无障碍物数据</td></tr>';
       return;
     }
 
@@ -465,8 +491,6 @@
         "<td>" + item.id + "</td>" +
         "<td>" + item.distance.toFixed(1) + " m</td>" +
         "<td>" + item.angle.toFixed(0) + "°</td>" +
-        "<td>" + item.velocity.toFixed(1) + " m/s</td>" +
-        "<td>" + item.type + "</td>" +
       "</tr>"
     )).join("");
   }
@@ -574,11 +598,11 @@
     const maxSlider = el(`${prefix}-max-dist`);
     if (minSlider) {
       minSlider.disabled = false;
-      minSlider.value = String(Math.max(0.1, Number.isFinite(minVal) ? minVal : 0.3));
+      minSlider.value = String(Math.max(MIN_DISTANCE_UI_MIN_M, Math.min(MIN_DISTANCE_UI_MAX_M, Number.isFinite(minVal) ? minVal : 0.3)));
     }
     if (maxSlider) {
       maxSlider.disabled = false;
-      maxSlider.value = String(Math.max(1, Number.isFinite(maxVal) ? maxVal : 40));
+      maxSlider.value = String(Math.max(MAX_DISTANCE_UI_MIN_M, Math.min(MAX_DISTANCE_UI_MAX_M, Number.isFinite(maxVal) ? maxVal : 40)));
     }
     setText(`${prefix}-min-dist-val`, (Number.isFinite(minVal) ? minVal : 0.3).toFixed(1) + " m");
     setText(`${prefix}-max-dist-val`, (Number.isFinite(maxVal) ? maxVal : 40).toFixed(0) + " m");
@@ -634,6 +658,26 @@
     });
   }
 
+  function renderConnectionAndFreshness() {
+    const device = getDeviceStatus();
+
+    const connChip = el("radar-conn-chip");
+    if (connChip) {
+      connChip.textContent = fcConnected() ? "链路已连接" : "链路未连接";
+      connChip.className = "radar-tag " + (fcConnected() ? "is-good" : "is-bad");
+    }
+
+    const badge = el("radar-device-badge");
+    if (badge) {
+      badge.textContent = device.statusLabel;
+      badge.className = "radar-badge " + device.statusClass;
+    }
+
+    setText("radar-sync-time", "上次同步: " + formatSyncTime(state.lastSyncMs));
+    setText("radar-live-rate", device.fresh ? "实时刷新" : "等待遥测");
+    renderInstanceTabs();
+  }
+
   function renderControls() {
     updateInstanceParamKeys();
     const device = getDeviceStatus();
@@ -676,7 +720,9 @@
 
     const altSlider = el("radar-prx-alt-min");
     const altVal = Number(getDraftValue("PRX_ALT_MIN")) || 0;
-    if (altSlider && document.activeElement !== altSlider) altSlider.value = String(altVal);
+    if (altSlider && document.activeElement !== altSlider) {
+      altSlider.value = String(Math.max(ALT_MIN_UI_MIN_M, Math.min(ALT_MIN_UI_MAX_M, altVal)));
+    }
     setText("radar-prx-alt-min-val", altVal.toFixed(1) + " m");
 
     const marginSlider = el("radar-safety-margin");
@@ -757,18 +803,29 @@
         if (ok) {
           sent += 1;
           if (window.params instanceof Map) window.params.set(item.key, Number(item.value));
-          state.drafts.delete(item.key);
         }
       } catch (_) {
         // ignore
       }
       await new Promise((resolve) => setTimeout(resolve, 40));
     }
+
+    await probeParams();
+
+    let verified = 0;
+    pending.forEach((item) => {
+      const live = getParamNum(item.key);
+      if (live != null && valuesClose(live, item.value)) {
+        state.drafts.delete(item.key);
+        verified += 1;
+      }
+    });
     persistDrafts();
     state.lastSyncMs = Date.now();
-    let msg = "已写入 " + sent + "/" + pending.length + " 个参数。";
-    if (typeChanged) msg += " 修改 PRX_TYPE 后请重启飞控。";
-    setStatus(msg, sent === pending.length ? "ok" : "warn");
+
+    let msg = "已发送 " + sent + "/" + pending.length + "，回读确认 " + verified + "/" + pending.length + "。";
+    if (typeChanged) msg += " 修改 PRX_TYPE 后可能需要重启飞控。";
+    setStatus(verified === pending.length ? msg : msg + " 未确认项已保留为待写入。", verified === pending.length ? "ok" : "warn");
     render(true);
   }
 

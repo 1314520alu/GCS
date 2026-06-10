@@ -996,6 +996,13 @@
                 <span id="radar-sync-time" class="radar-tag">上次同步: 尚未同步</span>
                 <span id="radar-conn-chip" class="radar-tag is-bad">链路未连接</span>
                 <span id="radar-active-slot" class="radar-tag">PRX1</span>
+                <nav id="radar-instance-tabs" class="radar-instance-tabs" aria-label="邻近传感器实例">
+                  <button type="button" class="radar-instance-tab is-active" data-instance="1"><span class="radar-tab-dot is-offline"></span>PRX1 <span id="radar-tab-label-1" class="radar-tab-type">未配置</span></button>
+                  <button type="button" class="radar-instance-tab" data-instance="2"><span class="radar-tab-dot is-offline"></span>PRX2 <span id="radar-tab-label-2" class="radar-tab-type">未配置</span></button>
+                  <button type="button" class="radar-instance-tab" data-instance="3"><span class="radar-tab-dot is-offline"></span>PRX3 <span id="radar-tab-label-3" class="radar-tab-type">未配置</span></button>
+                  <button type="button" class="radar-instance-tab" data-instance="4"><span class="radar-tab-dot is-offline"></span>PRX4 <span id="radar-tab-label-4" class="radar-tab-type">未配置</span></button>
+                  <button type="button" class="radar-instance-tab" data-instance="5"><span class="radar-tab-dot is-offline"></span>PRX5 <span id="radar-tab-label-5" class="radar-tab-type">未配置</span></button>
+                </nav>
               </div>
             </div>
             <div class="radar-toolbar">
@@ -1008,14 +1015,6 @@
               <button type="button" id="radar-reset-btn">恢复默认</button>
             </div>
           </header>
-
-          <nav id="radar-instance-tabs" class="radar-instance-tabs" aria-label="邻近传感器实例">
-            <button type="button" class="radar-instance-tab is-active" data-instance="1"><span class="radar-tab-dot is-offline"></span>PRX1 <span id="radar-tab-label-1" class="radar-tab-type">未配置</span></button>
-            <button type="button" class="radar-instance-tab" data-instance="2"><span class="radar-tab-dot is-offline"></span>PRX2 <span id="radar-tab-label-2" class="radar-tab-type">未配置</span></button>
-            <button type="button" class="radar-instance-tab" data-instance="3"><span class="radar-tab-dot is-offline"></span>PRX3 <span id="radar-tab-label-3" class="radar-tab-type">未配置</span></button>
-            <button type="button" class="radar-instance-tab" data-instance="4"><span class="radar-tab-dot is-offline"></span>PRX4 <span id="radar-tab-label-4" class="radar-tab-type">未配置</span></button>
-            <button type="button" class="radar-instance-tab" data-instance="5"><span class="radar-tab-dot is-offline"></span>PRX5 <span id="radar-tab-label-5" class="radar-tab-type">未配置</span></button>
-          </nav>
 
           <div class="radar-main">
           <div class="radar-body">
@@ -1042,13 +1041,6 @@
                     <span class="radar-field-label"><span class="radar-field-label-zh">CAN 接收 ID</span><span class="radar-field-label-en">PRX_RECV_ID</span></span>
                     <input id="radar-recv-id" data-param-key="PRX1_RECV_ID" type="number" step="1" min="0" max="65535">
                   </label>
-                  <p id="radar-rngfnd-hint" class="radar-hint" hidden>测距仪物理安装与朝向请在 RNGFND 参数中配置。</p>
-                </div>
-              </section>
-
-              <section class="radar-card radar-card-mount-range">
-                <div class="radar-card-head"><h4>安装与量程</h4></div>
-                <div class="radar-fields">
                   <div class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">安装方向</span><span class="radar-field-label-en">PRX_ORIENT</span></span>
                     <div class="radar-segment" role="group" aria-label="安装方向">
@@ -1056,30 +1048,103 @@
                       <button type="button" id="radar-orient-down" class="radar-segment-btn">下</button>
                     </div>
                   </div>
-                  <label class="radar-field">
+                  <label class="radar-field radar-field-yaw-corr">
                     <span class="radar-field-label"><span class="radar-field-label-zh">偏航修正</span><span class="radar-field-label-en">PRX_YAW_CORR</span></span>
-                    <input id="radar-yaw-corr" data-param-key="PRX1_YAW_CORR" type="number" step="1" min="-180" max="180">
+                    <div class="radar-yaw-row">
+                      <input id="radar-yaw-corr" data-param-key="PRX1_YAW_CORR" type="number" step="1" min="-180" max="180">
+                      <div class="radar-yaw-presets">
+                        <button type="button" class="radar-yaw-preset" data-yaw="0">0°</button>
+                        <button type="button" class="radar-yaw-preset" data-yaw="-90">-90°</button>
+                        <button type="button" class="radar-yaw-preset" data-yaw="90">90°</button>
+                        <button type="button" class="radar-yaw-preset" data-yaw="180">180°</button>
+                      </div>
+                    </div>
                   </label>
-                  <div class="radar-yaw-presets">
-                    <button type="button" class="radar-yaw-preset" data-yaw="0">0°</button>
-                    <button type="button" class="radar-yaw-preset" data-yaw="-90">-90°</button>
-                    <button type="button" class="radar-yaw-preset" data-yaw="90">90°</button>
-                    <button type="button" class="radar-yaw-preset" data-yaw="180">180°</button>
-                  </div>
                   <div class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">最大距离</span><span class="radar-field-label-en">PRX_MAX</span></span>
                     <div class="radar-slider-row">
-                      <input id="radar-max-dist" data-param-key="PRX1_MAX" type="range" min="1" max="500" step="1">
+                      <input id="radar-max-dist" data-param-key="PRX1_MAX" type="range" min="0.1" max="100" step="0.1">
                       <span id="radar-max-dist-val" class="radar-slider-val">40 m</span>
                     </div>
                   </div>
                   <div class="radar-field">
                     <span class="radar-field-label"><span class="radar-field-label-zh">最小距离</span><span class="radar-field-label-en">PRX_MIN</span></span>
                     <div class="radar-slider-row">
-                      <input id="radar-min-dist" data-param-key="PRX1_MIN" type="range" min="0.1" max="500" step="0.1">
+                      <input id="radar-min-dist" data-param-key="PRX1_MIN" type="range" min="0.1" max="4" step="0.1">
                       <span id="radar-min-dist-val" class="radar-slider-val">0.3 m</span>
                     </div>
                   </div>
+                  <p id="radar-rngfnd-hint" class="radar-hint" hidden>测距仪物理安装与朝向请在 RNGFND 参数中配置。</p>
+                </div>
+                <div class="radar-sensor-sections">
+                  <section class="radar-subsection">
+                    <div class="radar-subsection-head"><h5>全局 PRX</h5></div>
+                    <div class="radar-fields radar-fields-two-col">
+                      <div class="radar-field">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">滤波截止频率</span><span class="radar-field-label-en">PRX_FILT</span></span>
+                        <div class="radar-slider-row">
+                          <input id="radar-prx-filt" data-param-key="PRX_FILT" type="range" min="0" max="20" step="1">
+                          <span id="radar-prx-filt-val" class="radar-slider-val">10 Hz</span>
+                        </div>
+                      </div>
+                      <div class="radar-field">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">最低工作高度</span><span class="radar-field-label-en">PRX_ALT_MIN</span></span>
+                        <div class="radar-slider-row">
+                          <input id="radar-prx-alt-min" data-param-key="PRX_ALT_MIN" type="range" min="0" max="20" step="0.1">
+                          <span id="radar-prx-alt-min-val" class="radar-slider-val">0.0 m</span>
+                        </div>
+                      </div>
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">忽略地面回波</span><span class="radar-field-label-en">PRX_IGN_GND</span></span>
+                        <label class="radar-switch"><input id="radar-global-ground" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">原始数据记录</span><span class="radar-field-label-en">PRX_LOG_RAW</span></span>
+                        <label class="radar-switch"><input id="radar-global-log" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section class="radar-subsection">
+                    <div class="radar-subsection-head"><h5>障碍物避障</h5></div>
+                    <div class="radar-fields radar-fields-two-col">
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">启用避障</span><span class="radar-field-label-en">AVOID_ENABLE</span></span>
+                        <label class="radar-switch"><input id="radar-sw-avoid" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">自动绕行</span><span class="radar-field-label-en">OA_TYPE</span></span>
+                        <label class="radar-switch"><input id="radar-sw-detour" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">紧急制动</span><span class="radar-field-label-en">AVOID_BEHAVE</span></span>
+                        <label class="radar-switch"><input id="radar-sw-brake" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                      <div class="radar-switch-row">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">障碍物数据库</span><span class="radar-field-label-en">OA_DB_SIZE</span></span>
+                        <label class="radar-switch"><input id="radar-sw-database" type="checkbox"><span class="radar-switch-track"></span></label>
+                      </div>
+                      <label class="radar-field">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">数据库输出级别</span><span class="radar-field-label-en">OA_DB_OUTPUT</span></span>
+                        <select id="radar-oa-db-output" data-param-key="OA_DB_OUTPUT"></select>
+                      </label>
+                      <div class="radar-field">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">安全裕度</span><span class="radar-field-label-en">AVOID_MARGIN</span></span>
+                        <div class="radar-slider-row">
+                          <input id="radar-safety-margin" data-param-key="AVOID_MARGIN" type="range" min="0.5" max="20" step="0.5">
+                          <span id="radar-safety-margin-val" class="radar-slider-val">2.0 m</span>
+                        </div>
+                      </div>
+                      <div class="radar-field">
+                        <span class="radar-field-label"><span class="radar-field-label-zh">制动距离</span><span class="radar-field-label-en">AVOID_DIST_MAX</span></span>
+                        <div class="radar-slider-row">
+                          <input id="radar-brake-dist" data-param-key="AVOID_DIST_MAX" type="range" min="0.5" max="10" step="0.5">
+                          <span id="radar-brake-dist-val" class="radar-slider-val">5.0 m</span>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
                 </div>
               </section>
 
@@ -1109,85 +1174,14 @@
                         <th data-sort="id">ID</th>
                         <th data-sort="distance">距离</th>
                         <th data-sort="angle">角度</th>
-                        <th data-sort="velocity">速度</th>
-                        <th data-sort="type">类型</th>
                       </tr>
                     </thead>
                     <tbody id="radar-obstacle-body"></tbody>
                   </table>
                 </div>
               </section>
+
             </div>
-          </div>
-
-          <div class="radar-bottom">
-            <section class="radar-card">
-              <div class="radar-card-head"><h4>全局 PRX</h4></div>
-              <div class="radar-fields">
-                <div class="radar-field">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">滤波截止频率</span><span class="radar-field-label-en">PRX_FILT</span></span>
-                  <div class="radar-slider-row">
-                    <input id="radar-prx-filt" data-param-key="PRX_FILT" type="range" min="0" max="20" step="1">
-                    <span id="radar-prx-filt-val" class="radar-slider-val">10 Hz</span>
-                  </div>
-                </div>
-                <div class="radar-field">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">最低工作高度</span><span class="radar-field-label-en">PRX_ALT_MIN</span></span>
-                  <div class="radar-slider-row">
-                    <input id="radar-prx-alt-min" data-param-key="PRX_ALT_MIN" type="range" min="0" max="10" step="0.1">
-                    <span id="radar-prx-alt-min-val" class="radar-slider-val">0.0 m</span>
-                  </div>
-                </div>
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">忽略地面回波</span><span class="radar-field-label-en">PRX_IGN_GND</span></span>
-                  <label class="radar-switch"><input id="radar-global-ground" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">原始数据记录</span><span class="radar-field-label-en">PRX_LOG_RAW</span></span>
-                  <label class="radar-switch"><input id="radar-global-log" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-              </div>
-            </section>
-
-            <section class="radar-card">
-              <div class="radar-card-head"><h4>障碍物避障</h4></div>
-              <div class="radar-fields">
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">启用避障</span><span class="radar-field-label-en">AVOID_ENABLE</span></span>
-                  <label class="radar-switch"><input id="radar-sw-avoid" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">自动绕行</span><span class="radar-field-label-en">OA_TYPE</span></span>
-                  <label class="radar-switch"><input id="radar-sw-detour" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">紧急制动</span><span class="radar-field-label-en">AVOID_BEHAVE</span></span>
-                  <label class="radar-switch"><input id="radar-sw-brake" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-                <div class="radar-switch-row">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">障碍物数据库</span><span class="radar-field-label-en">OA_DB_SIZE</span></span>
-                  <label class="radar-switch"><input id="radar-sw-database" type="checkbox"><span class="radar-switch-track"></span></label>
-                </div>
-                <label class="radar-field">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">数据库输出级别</span><span class="radar-field-label-en">OA_DB_OUTPUT</span></span>
-                  <select id="radar-oa-db-output" data-param-key="OA_DB_OUTPUT"></select>
-                </label>
-                <div class="radar-field">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">安全裕度</span><span class="radar-field-label-en">AVOID_MARGIN</span></span>
-                  <div class="radar-slider-row">
-                    <input id="radar-safety-margin" data-param-key="AVOID_MARGIN" type="range" min="0.5" max="20" step="0.5">
-                    <span id="radar-safety-margin-val" class="radar-slider-val">2.0 m</span>
-                  </div>
-                </div>
-                <div class="radar-field">
-                  <span class="radar-field-label"><span class="radar-field-label-zh">制动距离</span><span class="radar-field-label-en">AVOID_DIST_MAX</span></span>
-                  <div class="radar-slider-row">
-                    <input id="radar-brake-dist" data-param-key="AVOID_DIST_MAX" type="range" min="0.5" max="10" step="0.5">
-                    <span id="radar-brake-dist-val" class="radar-slider-val">5.0 m</span>
-                  </div>
-                </div>
-              </div>
-            </section>
           </div>
           </div>
 

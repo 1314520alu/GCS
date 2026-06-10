@@ -1892,6 +1892,13 @@
             </div>
           </div>
         </div>
+        <div class="sc-dc-toolbar-card sc-dc-quick-row">
+          <div class="sc-dc-quick-panels" aria-label="${dcText("Flight controller CAN tools", "飞控 CAN 工具")}">
+            <button type="button" class="sc-dc-quick-panel sc-dc-quick-panel--slcan" data-dc-quick="slcan-params">${dcText("SLCAN Parameters", "SLCAN 参数")}</button>
+            <button type="button" class="sc-dc-quick-panel sc-dc-quick-panel--proto" data-dc-quick="can-protocol">${dcText("CAN Protocol", "CAN协议")}</button>
+            <button type="button" class="sc-dc-quick-panel sc-dc-quick-panel--config" data-dc-quick="can-config">${dcText("CAN Configuration", "CAN配置")}</button>
+          </div>
+        </div>
         <div class="sc-dc-toolbar-card sc-dc-toolbar-card--slcan" hidden>
           <div class="sc-dc-toolbar-right">
             <label class="sc-dc-slcan-port-label">${dcText("SLCAN Port", "SLCAN 端口")}

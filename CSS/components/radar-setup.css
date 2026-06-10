@@ -228,7 +228,7 @@
 .radar-body {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  grid-template-columns: minmax(0, 3fr) minmax(0, 4fr) minmax(0, 3fr);
   gap: var(--radar-gap);
   align-items: stretch;
 }
@@ -251,25 +251,21 @@
   grid-row: 1;
 }
 
-.radar-card-mount-range {
-  grid-column: 1;
-  grid-row: 2;
-}
-
 .radar-card-sector {
-  grid-column: 1;
-  grid-row: 3;
+  grid-column: 1 / span 3;
+  grid-row: 2;
 }
 
 .radar-live-card {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   height: 100%;
 }
 
 .radar-card-obstacles {
-  grid-column: 2;
-  grid-row: 3;
+  grid-column: 3;
+  grid-row: 1;
+  height: 100%;
 }
 
 .radar-card {
@@ -279,6 +275,12 @@
 
 .radar-card:hover {
   border-color: rgba(59, 130, 246, 0.35);
+}
+
+.radar-card-sensor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .radar-card-head {
@@ -327,6 +329,11 @@
   gap: 10px;
 }
 
+.radar-fields-two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
 .radar-fields-sensor-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -339,6 +346,17 @@
 .radar-field {
   display: grid;
   gap: 6px;
+}
+
+.radar-field-yaw-corr {
+  align-content: start;
+}
+
+.radar-yaw-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
 }
 
 .radar-field-label {
@@ -440,20 +458,29 @@
 }
 
 .radar-yaw-presets {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.radar-field-yaw-corr .radar-yaw-presets {
+  margin-top: 2px;
 }
 
 .radar-yaw-preset {
-  padding: 4px 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 0;
   border-radius: 6px;
   border: 1px solid var(--radar-border);
   background: rgba(17, 24, 39, 0.72);
   color: var(--radar-muted);
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
+  text-align: center;
 }
 
 .radar-yaw-preset:hover {
@@ -514,11 +541,28 @@
   cursor: crosshair;
 }
 
-.radar-bottom {
-  flex-shrink: 0;
+.radar-sensor-sections {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--radar-gap);
+  gap: 12px;
+}
+
+.radar-subsection {
+  padding-top: 14px;
+  border-top: 1px solid rgba(55, 65, 81, 0.45);
+}
+
+.radar-subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.radar-subsection-head h5 {
+  margin: 0;
+  font-size: 13px;
+  color: #e5edf8;
 }
 
 .radar-switch-row {
@@ -723,10 +767,6 @@
     grid-row: auto;
   }
 
-  .radar-bottom {
-    grid-template-columns: 1fr;
-  }
-
   .radar-canvas-wrap {
     flex: 0 0 auto;
     aspect-ratio: 1;
@@ -759,4 +799,9 @@
   .radar-fields-sensor-grid {
     grid-template-columns: 1fr;
   }
+
+  .radar-fields-two-col {
+    grid-template-columns: 1fr;
+  }
+
 }
