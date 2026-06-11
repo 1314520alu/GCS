@@ -3,6 +3,7 @@ import binascii
 import json
 import re
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -955,8 +956,156 @@ class SerialHub:
                 return
 
 
+class TcpHub:
+    def __init__(self, label):
+        self.label = label
+        self.lock = threading.Lock()
+        self.sock = None
+        self.host = None
+        self.port = None
+        self.rx_buffer = bytearray()
+        self.reader_thread = None
+        self._last_rx_at = 0.0
+        self._rx_bytes_total = 0
+        self._reader_alive = False
+        self._generation = 0
+        self._session_seq = 0
+        self._session_id = 0
+        self._last_error = ""
+        self._last_open_host = None
+        self._last_open_port = None
+
+    def status(self):
+        with self.lock:
+            now = time.time()
+            last_rx_age = (now - self._last_rx_at) if getattr(self, "_last_rx_at", 0) else 999
+            return {
+                "label": self.label,
+                "open": self.sock is not None,
+                "host": self.host,
+                "port": self.port,
+                "endpoint": f"{self.host}:{self.port}" if self.host and self.port else None,
+                "sessionId": getattr(self, "_session_id", 0),
+                "lastRxAgeSec": round(last_rx_age, 2) if last_rx_age < 999 else None,
+                "bytesRx": getattr(self, "_rx_bytes_total", 0),
+                "rxBytesTotal": getattr(self, "_rx_bytes_total", 0),
+                "readerAlive": getattr(self, "_reader_alive", False),
+                "lastOpenHost": getattr(self, "_last_open_host", None),
+                "lastOpenPort": getattr(self, "_last_open_port", None),
+                "error": getattr(self, "_last_error", ""),
+            }
+
+    def open(self, host, port, timeout=10.0):
+        self.close()
+        host = str(host or "").strip()
+        port = int(port)
+        if not host:
+            raise RuntimeError("host is required")
+        if port <= 0:
+            raise RuntimeError("port must be > 0")
+        sock = socket.create_connection((host, port), timeout=float(timeout))
+        sock.settimeout(0.2)
+        with self.lock:
+            self._generation += 1
+            generation = self._generation
+            self._session_seq += 1
+            self._session_id = self._session_seq
+            self.sock = sock
+            self.host = host
+            self.port = port
+            self.rx_buffer = bytearray()
+            self._last_rx_at = 0.0
+            self._rx_bytes_total = 0
+            self._reader_alive = True
+            self._last_error = ""
+            self._last_open_host = host
+            self._last_open_port = port
+        self.reader_thread = threading.Thread(target=self._reader_loop, args=(generation,), daemon=True)
+        self.reader_thread.start()
+        return self.status()
+
+    def close(self):
+        with self.lock:
+            s = self.sock
+            t = self.reader_thread
+            self._generation += 1
+            self.sock = None
+            self.host = None
+            self.port = None
+            self.rx_buffer = bytearray()
+            self._last_rx_at = 0.0
+            self._rx_bytes_total = 0
+            self._reader_alive = False
+            self._session_id = 0
+            self._last_error = ""
+            self.reader_thread = None
+        if s is not None:
+            try:
+                s.close()
+            except Exception:
+                pass
+        if t is not None and t.is_alive() and t is not threading.current_thread():
+            try:
+                t.join(timeout=1.0)
+            except Exception:
+                pass
+
+    def write(self, data):
+        with self.lock:
+            s = self.sock
+            if s is None:
+                raise RuntimeError(f"{self.label} is not open")
+            s.sendall(data)
+            return len(data)
+
+    def read_buffer(self, max_bytes=65536):
+        with self.lock:
+            if not self.rx_buffer:
+                return b""
+            data = bytes(self.rx_buffer[:max_bytes])
+            del self.rx_buffer[:max_bytes]
+            return data
+
+    def _reader_loop(self, generation):
+        while True:
+            with self.lock:
+                if generation != self._generation:
+                    return
+                s = self.sock
+            if s is None:
+                with self.lock:
+                    if generation == self._generation:
+                        self._reader_alive = False
+                return
+            try:
+                data = s.recv(4096)
+                if not data:
+                    with self.lock:
+                        if generation == self._generation:
+                            self._reader_alive = False
+                            self._last_error = "tcp peer closed"
+                    return
+                now = time.time()
+                with self.lock:
+                    if generation != self._generation:
+                        return
+                    self.rx_buffer.extend(data)
+                    self._last_rx_at = now
+                    self._rx_bytes_total = getattr(self, "_rx_bytes_total", 0) + len(data)
+                _tcp_broadcast(data)
+            except socket.timeout:
+                continue
+            except Exception as exc:
+                with self.lock:
+                    if generation == self._generation:
+                        self._reader_alive = False
+                        self._last_error = str(exc)
+                return
+
+
 MAVLINK_HUB = SerialHub("bridge")
 SLCAN_HUB = SerialHub("slcan")
+TCP_HUB = TcpHub("tcp")
 
 # ============================================================
 # Bridge subscribers — allow multiple pages to share one MAVLink stream
@@ -1024,6 +1173,63 @@ def _get_bridge_probe_snapshot():
             "bauds": list(_bridge_probe_last.get("bauds") or []),
             "result": _bridge_probe_last.get("result"),
         }
+
+
+_tcp_subscribers = {}
+_tcp_subscribers_lock = threading.Lock()
+
+
+def _subscribe_tcp_tab(tab_id):
+    tab = str(tab_id or "").strip()
+    if not tab:
+        return False
+    with _tcp_subscribers_lock:
+        _tcp_subscribers.setdefault(tab, bytearray())
+    return True
+
+
+def _unsubscribe_tcp_tab(tab_id):
+    tab = str(tab_id or "").strip()
+    if not tab:
+        return False
+    with _tcp_subscribers_lock:
+        existed = tab in _tcp_subscribers
+        _tcp_subscribers.pop(tab, None)
+        return existed
+
+
+def _tcp_subscriber_count():
+    with _tcp_subscribers_lock:
+        return len(_tcp_subscribers)
+
+
+def _tcp_broadcast(data):
+    if not data:
+        return
+    with _tcp_subscribers_lock:
+        stale = []
+        for tab_id, buf in _tcp_subscribers.items():
+            try:
+                buf.extend(data)
+                if len(buf) > 2_000_000:
+                    del buf[:-1_000_000]
+            except Exception:
+                stale.append(tab_id)
+        for tab_id in stale:
+            _tcp_subscribers.pop(tab_id, None)
+
+
+def _tcp_read_for_tab(tab_id, max_bytes=65536):
+    tab = str(tab_id or "").strip()
+    if not tab:
+        return b""
+    with _tcp_subscribers_lock:
+        buf = _tcp_subscribers.get(tab)
+        if not buf:
+            return b""
+        data = bytes(buf[:max_bytes])
+        del buf[:max_bytes]
+        return data
 
 
 def _bridge_broadcast(data):
@@ -1728,6 +1934,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             mav = MAVLINK_HUB.status() if 'MAVLINK_HUB' in globals() else {}
+            tcp = TCP_HUB.status() if 'TCP_HUB' in globals() else {}
             send_json(self, 200, {
                 "ok": True,
                 "service": "com-bridge",
@@ -1742,6 +1949,15 @@ class Handler(BaseHTTPRequestHandler):
                     "readerAlive": mav.get("readerAlive"),
                     "bytesRx": mav.get("bytesRx"),
                     "error": mav.get("error"),
+                },
+                "tcpBridge": {
+                    "sessionId": tcp.get("sessionId"),
+                    "open": tcp.get("open", False),
+                    "endpoint": tcp.get("endpoint"),
+                    "lastRxAgeSec": tcp.get("lastRxAgeSec"),
+                    "readerAlive": tcp.get("readerAlive"),
+                    "bytesRx": tcp.get("bytesRx"),
+                    "error": tcp.get("error"),
                 },
             })
             return
@@ -1774,8 +1990,21 @@ class Handler(BaseHTTPRequestHandler):
                 "lastProbe": _get_bridge_probe_snapshot(),
             })
             return
+        if self.path == "/tcp-status":
+            send_json(self, 200, {
+                **TCP_HUB.status(),
+                "apiVersion": BRIDGE_API_VERSION,
+                "scriptMtime": int(os.path.getmtime(__file__)),
+                "scriptPath": __file__,
+                "subscribers": _tcp_subscriber_count(),
+            })
+            return
         if self.path == "/bridge-read":
             data = _bridge_read_for_tab(_get_tab_id(self))
+            send_json(self, 200, {"data": base64.b64encode(data).decode("ascii")})
+            return
+        if self.path == "/tcp-read":
+            data = _tcp_read_for_tab(_get_tab_id(self))
             send_json(self, 200, {"data": base64.b64encode(data).decode("ascii")})
             return
         if self.path == "/slcan-status":
@@ -1909,6 +2138,50 @@ class Handler(BaseHTTPRequestHandler):
                 if removed and _bridge_subscriber_count() <= 0:
                     MAVLINK_HUB.close()
                 send_json(self, 200, {"ok": True, "subscribers": _bridge_subscriber_count()})
+                return
+            if self.path == "/tcp-open":
+                host = str(payload.get("host") or "").strip()
+                port = int(payload.get("port") or 0)
+                timeout = float(payload.get("timeout") or 10.0)
+                if not host:
+                    raise RuntimeError("host is required")
+                if port <= 0:
+                    raise RuntimeError("port is required")
+                tab_id = _get_tab_id(self)
+                current = TCP_HUB.status()
+                already_open = (
+                    current.get("open")
+                    and str(current.get("host") or "").strip() == host
+                    and int(current.get("port") or 0) == port
+                )
+                if already_open:
+                    _subscribe_tcp_tab(tab_id)
+                    status = TCP_HUB.status()
+                    send_json(self, 200, {"ok": True, "shared": True, **status, "subscribers": _tcp_subscriber_count()})
+                    return
+                status = TCP_HUB.open(host, port, timeout=timeout)
+                if status.get("open"):
+                    _subscribe_tcp_tab(tab_id)
+                send_json(self, 200, {"ok": True, **status})
+                return
+            if self.path == "/tcp-close":
+                tab_id = _get_tab_id(self)
+                prev = TCP_HUB.status()
+                _unsubscribe_tcp_tab(tab_id)
+                if _tcp_subscriber_count() <= 0:
+                    TCP_HUB.close()
+                send_json(self, 200, {
+                    "ok": True,
+                    "sessionClosed": prev.get("sessionId", 0) if _tcp_subscriber_count() <= 0 else 0,
+                    **TCP_HUB.status(),
+                    "subscribers": _tcp_subscriber_count(),
+                })
+                return
+            if self.path == "/tcp-write":
+                b64 = payload.get("data") or ""
+                data = base64.b64decode(b64.encode("ascii"))
+                written = TCP_HUB.write(data)
+                send_json(self, 200, {"ok": True, "written": written})
                 return
             if self.path == "/slcan-open":
                 port = str(payload.get("port") or "").strip() or str(detect_slcan_port() or "").strip()

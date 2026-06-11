@@ -41,3 +41,6 @@ map-tiles/
 
 # Local-only archived resources
 _tmp_resources/
+
+# Local browser config / secrets
+local/

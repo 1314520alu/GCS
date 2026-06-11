@@ -1,11 +1,9 @@
-/**
- * 初始设置侧栏：面板 accent 联动、aria-current、状态徽章
+﻿/**
+ * 鍒濆璁剧疆渚ф爮锛氶潰鏉?accent 鑱斿姩銆乤ria-current銆佺姸鎬佸窘绔?
  */
 (function initSetupNav() {
   let dronecanHasIssue = false;
-  const PANEL_NAV_ALIAS = {
-    rtk: "params",
-  };
+  const PANEL_NAV_ALIAS = {};
 
   function resolveNavPanel(panel) {
     const key = String(panel || "overview");
@@ -54,14 +52,14 @@
       connected &&
       warn &&
       (warn.classList.contains("danger") ||
-        (warn.classList.contains("warn") && !warnText.includes("等待参数")));
+        (warn.classList.contains("warn") && !warnText.includes("绛夊緟鍙傛暟")));
 
     const sensorsNeedAttention =
       connected &&
-      (warnText.includes("传感器") ||
-        warnText.includes("校准") ||
+      (warnText.includes("浼犳劅鍣?) ||
+        warnText.includes("鏍″噯") ||
         warnText.includes("compass") ||
-        warnText.includes("罗盘"));
+        warnText.includes("缃楃洏"));
 
     setBadge("safety", preflightFailed);
     setBadge("sensors", sensorsNeedAttention);
@@ -91,3 +89,4 @@
     setInterval(updateBadges, 2000);
   });
 })();
+

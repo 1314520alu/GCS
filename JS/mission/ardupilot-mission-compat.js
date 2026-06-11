@@ -12,6 +12,10 @@
   const CMD = MM.MAV_CMD;
   /** 与 MP 保存的 home 行一致：MAV_FRAME_GLOBAL */
   const MAV_FRAME_GLOBAL = 0;
+  const MAV_FRAME_GLOBAL_RELATIVE_ALT = 3;
+  const MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+  const MAV_FRAME_GLOBAL_TERRAIN_ALT = MM.MAV_FRAME_GLOBAL_TERRAIN_ALT;
+  const MAV_FRAME_MISSION = MM.MAV_FRAME_MISSION;
 
   function isHomeRow(wp, index) {
     if (!wp) {
@@ -105,10 +109,102 @@
     return MM.renumberWaypoints(list.slice(1));
   }
 
+  function normalizeWaypointsForMissionPlannerExport(waypoints) {
+    let lastNavFrame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    return MM.renumberWaypoints((waypoints || []).reduce(function (acc, wp) {
+      if (!wp) {
+        return acc;
+      }
+      if (
+        wp.command === CMD.NAV_WAYPOINT ||
+        wp.command === CMD.NAV_TAKEOFF ||
+        wp.command === CMD.NAV_RETURN_TO_LAUNCH ||
+        wp.command === CMD.NAV_LOITER_TO_ALT
+      ) {
+        lastNavFrame = normalizeFrameForMissionPlannerExport(wp, acc.length);
+      }
+      if (
+        wp.command === CMD.IMAGE_START_CAPTURE ||
+        wp.command === CMD.IMAGE_STOP_CAPTURE
+      ) {
+        return acc;
+      }
+      if (wp.command === CMD.DO_SET_CAM_TRIGG_DIST) {
+        acc.push(Object.assign({}, wp, {
+          frame: lastNavFrame,
+          lat: 0,
+          lng: 0,
+          alt: 0,
+          param3: 1
+        }));
+        return acc;
+      }
+      if (wp.command === CMD.NAV_LOITER_TO_ALT) {
+        const p1 = Number(wp.param1) || 0;
+        const p2 = Number(wp.param2) || 0;
+        const exportWp = Object.assign({}, wp);
+        if (p2 !== 0 && p1 === 0) {
+          exportWp.param1 = p2;
+          exportWp.param2 = 0;
+        }
+        acc.push(exportWp);
+        return acc;
+      }
+      acc.push(wp);
+      return acc;
+    }, []));
+  }
+
+  function normalizeFrameForMissionPlannerExport(wp, index) {
+    if (!wp) {
+      return MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    }
+    if (isHomeRow(wp, index)) {
+      return MAV_FRAME_GLOBAL;
+    }
+    const frame = Number(wp.frame);
+    if (frame === MAV_FRAME_MISSION) {
+      return MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    }
+    if (frame === MAV_FRAME_GLOBAL_RELATIVE_ALT_INT) {
+      return MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    }
+    if (frame === MAV_FRAME_GLOBAL_TERRAIN_ALT) {
+      return MAV_FRAME_GLOBAL_TERRAIN_ALT;
+    }
+    if (!Number.isFinite(frame)) {
+      return MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    }
+    return frame;
+  }
+
+  /** MP 文件 cmd 31 半径写在 param1；GCS 内部用 param2（ArduPilot Plane 规范） */
+  function normalizeWaypointFromMissionPlannerImport(wp) {
+    if (!wp || wp.command !== CMD.NAV_LOITER_TO_ALT) {
+      return wp;
+    }
+    const p1 = Number(wp.param1) || 0;
+    const p2 = Number(wp.param2) || 0;
+    if (p1 !== 0 && p2 === 0) {
+      return Object.assign({}, wp, { param1: 0, param2: p1 });
+    }
+    return wp;
+  }
+
+  function normalizeWaypointsFromMissionPlannerImport(waypoints) {
+    return (waypoints || []).map(normalizeWaypointFromMissionPlannerImport);
+  }
+
   window.ArdupilotMissionCompat = {
     MAV_FRAME_GLOBAL: MAV_FRAME_GLOBAL,
+    MAV_FRAME_GLOBAL_RELATIVE_ALT: MAV_FRAME_GLOBAL_RELATIVE_ALT,
+    MAV_FRAME_GLOBAL_TERRAIN_ALT: MAV_FRAME_GLOBAL_TERRAIN_ALT,
     isHomeRow: isHomeRow,
     expandWithHomeRow: expandWithHomeRow,
-    stripHomeRowForEditor: stripHomeRowForEditor
+    stripHomeRowForEditor: stripHomeRowForEditor,
+    normalizeWaypointsForMissionPlannerExport: normalizeWaypointsForMissionPlannerExport,
+    normalizeFrameForMissionPlannerExport: normalizeFrameForMissionPlannerExport,
+    normalizeWaypointFromMissionPlannerImport: normalizeWaypointFromMissionPlannerImport,
+    normalizeWaypointsFromMissionPlannerImport: normalizeWaypointsFromMissionPlannerImport
   };
 })();

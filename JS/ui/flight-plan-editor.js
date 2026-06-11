@@ -3029,6 +3029,117 @@
   const FP3D_SAMPLE_STEP_M = 28;
   const FP3D_SURVEY_STEP_M = 24;
 
+  function isRelativeAltPreviewFrame(frame, MM) {
+    const AP = window.ArdupilotMissionCompat;
+    return (
+      frame === 3 ||
+      frame === MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT ||
+      (AP && frame === AP.MAV_FRAME_GLOBAL_RELATIVE_ALT)
+    );
+  }
+
+  function computeWaypointPreviewFlightZ(wp, terrainZ, homeTerrain, MM) {
+    if (!wp) {
+      return 0;
+    }
+    const alt = Number(wp.alt) || 0;
+    const frame = wp.frame;
+    if (frame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT) {
+      return terrainZ + alt;
+    }
+    if (isRelativeAltPreviewFrame(frame, MM)) {
+      return (homeTerrain != null ? homeTerrain : terrainZ) + alt;
+    }
+    return alt;
+  }
+
+  function computePreviewFlightZ(interpolatedAlt, segmentFrame, terrainZ, homeTerrain, MM) {
+    let flightZ = interpolatedAlt;
+    if (segmentFrame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT) {
+      flightZ = terrainZ + interpolatedAlt;
+    } else if (isRelativeAltPreviewFrame(segmentFrame, MM)) {
+      flightZ = (homeTerrain != null ? homeTerrain : terrainZ) + interpolatedAlt;
+    }
+    return flightZ;
+  }
+
+  function getLoiterRadiusMeters(wp) {
+    if (!wp) {
+      return 0;
+    }
+    const p2 = Number(wp.param2) || 0;
+    const p1 = Number(wp.param1) || 0;
+    if (p2 !== 0) {
+      return p2;
+    }
+    if (p1 !== 0) {
+      return p1;
+    }
+    return -120;
+  }
+
+  function appendLoiterArcToSamples(samples, segment, origin) {
+    const MM = window.MissionModel;
+    const to = segment && segment.to;
+    if (
+      !MM ||
+      !to ||
+      to.command !== MM.MAV_CMD.NAV_LOITER_TO_ALT ||
+      !samples ||
+      samples.length < 2
+    ) {
+      return samples;
+    }
+    const radiusSigned = getLoiterRadiusMeters(to);
+    const radiusM = Math.abs(radiusSigned);
+    if (radiusM < 5) {
+      return samples;
+    }
+    const fromLocal = projectLngLatToMeters(segment.from, origin);
+    const centerLocal = projectLngLatToMeters(to, origin);
+    const approachAngle = Math.atan2(
+      centerLocal.x - fromLocal.x,
+      centerLocal.y - fromLocal.y
+    );
+    const last = samples[samples.length - 1];
+    const sweep = (radiusSigned < 0 ? 1 : -1) * Math.PI * 1.35;
+    const steps = Math.max(12, Math.round(radiusM / 5));
+    const out = samples.slice();
+    for (let i = 1; i <= steps; i += 1) {
+      const angle = approachAngle + sweep * (i / steps);
+      const x = centerLocal.x + radiusM * Math.sin(angle);
+      const z = centerLocal.y + radiusM * Math.cos(angle);
+      const geo = projectMetersToLngLat({ x: x, y: z }, origin);
+      out.push({
+        lat: geo.lat,
+        lng: geo.lng,
+        x: x,
+        z: z,
+        terrainZ: last.terrainZ,
+        flightZ: last.flightZ,
+        agl: last.agl,
+        available: last.available,
+        bearingRad: angle + (radiusSigned < 0 ? Math.PI / 2 : -Math.PI / 2)
+      });
+    }
+    return out;
+  }
+
+  function countPreviewMissionWaypoints(opts, mode) {
+    if (mode === "planning") {
+      if (opts.terrainPlanBlocks && opts.terrainPlanBlocks.length) {
+        return opts.terrainPlanBlocks.reduce(function (total, block) {
+          const path = block && Array.isArray(block.previewPath) ? block.previewPath : [];
+          return total + path.length;
+        }, 0);
+      }
+      return Array.isArray(opts.surveyPath) ? opts.surveyPath.length : 0;
+    }
+    return (opts.missionWaypoints || []).filter(function (wp) {
+      return wp && wp.source !== "camera";
+    }).length;
+  }
+
   function normalizePreviewPoint(point, fallbackAlt) {
     if (!point) {
       return null;
@@ -3124,9 +3235,6 @@
       if (!pa || !pb) {
         continue;
       }
-      if (a.source === "survey" && b.source === "survey" && shouldSkipSurveyMapSegment(a, b)) {
-        continue;
-      }
       segments.push({
         id: "mission-" + i,
         type: classifyPreviewSegmentType(a, b),
@@ -3140,6 +3248,39 @@
       });
     }
     return segments;
+  }
+
+  function buildHomeConnectorPreviewSegment(home, firstWaypoint, settings) {
+    const MM = window.MissionModel;
+    const AP = window.ArdupilotMissionCompat;
+    if (!MM || !home || !firstWaypoint) {
+      return null;
+    }
+    const homeFrame = AP && AP.MAV_FRAME_GLOBAL != null ? AP.MAV_FRAME_GLOBAL : 0;
+    const homePoint = normalizePreviewPoint(
+      {
+        lat: Number(home.lat),
+        lng: Number(home.lng),
+        alt: Number(home.alt) || 0,
+        frame: homeFrame,
+        command: MM.MAV_CMD.NAV_WAYPOINT,
+        source: "home",
+        label: "Home"
+      },
+      settings.surveyAltitude
+    );
+    const firstCoords = effectivePreviewWaypointLatLng(firstWaypoint, home);
+    if (!homePoint || !firstCoords) {
+      return null;
+    }
+    return {
+      id: "mission-home",
+      type: "other",
+      from: homePoint,
+      to: normalizePreviewPoint(Object.assign({}, firstWaypoint, firstCoords), settings.surveyAltitude),
+      blockId: "",
+      ribbonWidth: 12
+    };
   }
 
   function buildPlanningPreviewSegments(terrainPlanBlocks, surveyPath, settings) {
@@ -3308,8 +3449,11 @@
       return summary;
     }
     summary.segmentCount = data.segments.length;
+    summary.waypointCount =
+      data.missionWaypointCount != null && Number.isFinite(Number(data.missionWaypointCount))
+        ? Number(data.missionWaypointCount)
+        : 0;
     data.segments.forEach(function (segment) {
-      summary.waypointCount += Math.max(2, segment.samples ? segment.samples.length : 0);
       (segment.samples || []).forEach(function (sample) {
         if (sample.terrainZ != null && Number.isFinite(sample.terrainZ)) {
           summary.terrainMin =
@@ -3371,10 +3515,20 @@
       opts.terrainPlanBlocks,
       opts.surveyBlocks
     );
-    const rawSegments =
+    const rawSegmentsBase =
       mode === "planning"
         ? buildPlanningPreviewSegments(opts.terrainPlanBlocks, opts.surveyPath, settings)
         : buildMissionPreviewSegments(opts.missionWaypoints, settings, home);
+    let rawSegments = rawSegmentsBase;
+    if (mode === "mission") {
+      const firstMissionWp = (opts.missionWaypoints || []).find(function (wp) {
+        return wp && wp.source !== "camera";
+      });
+      const homeSegment = buildHomeConnectorPreviewSegment(home, firstMissionWp, settings);
+      if (homeSegment) {
+        rawSegments = [homeSegment].concat(rawSegmentsBase);
+      }
+    }
     if (!rawSegments.length) {
       return Promise.resolve({
         ok: false,
@@ -3422,7 +3576,6 @@
           const densePoints = buildPreviewResampledPoints(segment.from, segment.to, step);
           const segmentProfile = resolveSegmentProfile(segment);
           const shouldSampleTerrain =
-            mode === "planning" &&
             !(segmentProfile && segmentProfile.length >= 2) &&
             TS &&
             typeof TS.sampleElevationBatch === "function";
@@ -3464,22 +3617,6 @@
                 terrain.elevation != null &&
                 Number.isFinite(Number(terrain.elevation)) &&
                 terrain.available !== false;
-              const interpolatedAlt =
-                Number(segment.from.alt) + (Number(segment.to.alt) - Number(segment.from.alt)) * ratio;
-              const segmentFrame =
-                segment.frame != null
-                  ? segment.frame
-                  : segment.from && segment.from.frame != null
-                    ? segment.from.frame
-                    : segment.to && segment.to.frame != null
-                      ? segment.to.frame
-                      : null;
-              let flightZ = interpolatedAlt;
-              if (segmentFrame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT) {
-                flightZ = terrainZ + interpolatedAlt;
-              } else if (segmentFrame === MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT) {
-                flightZ = (homeTerrain != null ? homeTerrain : terrainZ) + interpolatedAlt;
-              }
               const local = projectLngLatToMeters(point, origin);
               let bearingRad = 0;
               if (index < densePoints.length - 1) {
@@ -3495,22 +3632,46 @@
                 x: local.x,
                 z: local.y,
                 terrainZ: terrainZ,
-                flightZ: flightZ,
-                agl: Math.max(0, flightZ - terrainZ),
+                flightZ: 0,
+                agl: 0,
                 available: available,
                 bearingRad: bearingRad
               };
             });
+            if (samples.length) {
+              const startFlightZ = computeWaypointPreviewFlightZ(
+                segment.from,
+                samples[0].terrainZ,
+                homeTerrain,
+                MM
+              );
+              const endFlightZ = computeWaypointPreviewFlightZ(
+                segment.to,
+                samples[samples.length - 1].terrainZ,
+                homeTerrain,
+                MM
+              );
+              samples.forEach(function (sample, index) {
+                const ratio = samples.length <= 1 ? 0 : index / (samples.length - 1);
+                sample.flightZ = startFlightZ + (endFlightZ - startFlightZ) * ratio;
+                sample.agl = Math.max(0, sample.flightZ - sample.terrainZ);
+              });
+            }
+            const withLoiterArc = appendLoiterArcToSamples(samples, segment, origin);
             return Object.assign({}, segment, {
-              samples: samples,
-              terrainAvailable: samples.some(function (sample) {
+              samples: withLoiterArc,
+              terrainAvailable: withLoiterArc.some(function (sample) {
                 return sample.available;
               })
             });
           });
         })
       ).then(function (segments) {
-        const summary = buildPreviewSummary({ segments: segments });
+        const missionWaypointCount = countPreviewMissionWaypoints(opts, mode);
+        const summary = buildPreviewSummary({
+          segments: segments,
+          missionWaypointCount: missionWaypointCount
+        });
         return {
           ok: true,
           error: segments.some(function (segment) {
@@ -3521,9 +3682,11 @@
           data: {
             mode: mode,
             platform: opts.platform || settings.platform || null,
+            origin: { lat: origin.lat, lng: origin.lng },
             segments: segments,
             routePoints: buildPreviewRoutePoints(segments),
-            summary: summary
+            summary: summary,
+            missionWaypointCount: missionWaypointCount
           }
         };
       });
@@ -3614,6 +3777,8 @@
     const fileInputRef = useRef(null);
     const previewThreeCanvasRef = useRef(null);
     const previewThreeApiRef = useRef(null);
+    const previewCesiumContainerRef = useRef(null);
+    const previewCesiumViewerRef = useRef(null);
     const [activeTab, setActiveTab] = useState(
       initialDraft && initialDraft.activeTab ? initialDraft.activeTab : "waypoint"
     );
@@ -3678,9 +3843,12 @@
     const [preview3dData, setPreview3dData] = useState(null);
     const [preview3dMode, setPreview3dMode] = useState("mission");
     const [preview3dView, setPreview3dView] = useState("iso");
+    const [preview3dCesiumHealthy, setPreview3dCesiumHealthy] = useState(true);
     const [preview3dShowTerrain, setPreview3dShowTerrain] = useState(true);
     const [preview3dShowConnectors, setPreview3dShowConnectors] = useState(true);
     const [preview3dShowVerticals, setPreview3dShowVerticals] = useState(true);
+    const cesiumPreviewEnabled =
+      !!(window.Cesium && window.FlightPlanPreviewCesium) && preview3dCesiumHealthy;
     const [demPreviewHeadingDeg, setDemPreviewHeadingDeg] = useState(null);
     const [demPreviewHeadingStatus, setDemPreviewHeadingStatus] = useState("idle");
     const [demPreviewHeadingSource, setDemPreviewHeadingSource] = useState("");
@@ -3912,6 +4080,9 @@
 
     useEffect(function () {
       function onResize() {
+        if (previewCesiumViewerRef.current && typeof previewCesiumViewerRef.current.resize === "function") {
+          previewCesiumViewerRef.current.resize();
+        }
         if (previewThreeApiRef.current && typeof previewThreeApiRef.current.resize === "function") {
           previewThreeApiRef.current.resize();
         }
@@ -3926,7 +4097,41 @@
     }, []);  // always listen so 2D map recovers on browser resize too
 
     useEffect(function () {
-      if (!preview3dOpen || !preview3dData || !previewThreeCanvasRef.current) {
+      if (!preview3dOpen || !preview3dData) {
+        return;
+      }
+      const canUseCesium =
+        !!(window.Cesium && window.FlightPlanPreviewCesium) && preview3dCesiumHealthy;
+      if (!previewCesiumViewerRef.current && canUseCesium && previewCesiumContainerRef.current && window.FlightPlanPreviewCesium) {
+        try {
+          previewCesiumViewerRef.current = window.FlightPlanPreviewCesium.create(previewCesiumContainerRef.current);
+        } catch (err) {
+          console.error("3D Cesium preview init failed, falling back to Three.js", err);
+          previewCesiumViewerRef.current = null;
+          setPreview3dCesiumHealthy(false);
+          setPreview3dNotice("Cesium 预览初始化失败，已切换到本地 3D 预览。");
+        }
+      }
+      if (previewCesiumViewerRef.current) {
+        try {
+          previewCesiumViewerRef.current.update(preview3dData, {
+            showTerrain: preview3dShowTerrain,
+            showConnectors: preview3dShowConnectors,
+            showVerticals: preview3dShowVerticals,
+            view: preview3dView
+          });
+          return;
+        } catch (err) {
+          console.error("3D Cesium preview update failed, falling back to Three.js", err);
+          if (typeof previewCesiumViewerRef.current.dispose === "function") {
+            previewCesiumViewerRef.current.dispose();
+          }
+          previewCesiumViewerRef.current = null;
+          setPreview3dCesiumHealthy(false);
+          setPreview3dNotice("Cesium 预览不可用，已切换到本地 3D 预览。");
+        }
+      }
+      if (!previewThreeCanvasRef.current) {
         return;
       }
       if (!previewThreeApiRef.current && window.FlightPlanPreviewThree) {
@@ -3945,6 +4150,7 @@
     }, [
       preview3dOpen,
       preview3dData,
+      preview3dCesiumHealthy,
       preview3dShowTerrain,
       preview3dShowConnectors,
       preview3dShowVerticals,
@@ -6165,6 +6371,10 @@
     const close3dPreview = useCallback(function () {
       setPreview3dOpen(false);
       setPreview3dLoading(false);
+      if (previewCesiumViewerRef.current && typeof previewCesiumViewerRef.current.dispose === "function") {
+        previewCesiumViewerRef.current.dispose();
+        previewCesiumViewerRef.current = null;
+      }
       if (previewThreeApiRef.current && typeof previewThreeApiRef.current.dispose === "function") {
         previewThreeApiRef.current.dispose();
         previewThreeApiRef.current = null;
@@ -6185,6 +6395,7 @@
       setPreview3dView("iso");
       setPreview3dError("");
       setPreview3dNotice("");
+      setPreview3dCesiumHealthy(true);
       setPreview3dLoading(true);
       setPreview3dOpen(true);
       prepareFlightPlanPreviewData({
@@ -7232,7 +7443,7 @@
                     setPreview3dShowTerrain(event.target.checked);
                   }
                 }),
-                e("span", null, "显示地表")
+                e("span", null, "显示地表/地图")
               ),
               e(
                 "label",
@@ -7272,7 +7483,15 @@
             preview3dLoading
               ? e("div", { className: "fp-preview3d-loading" }, "正在准备 3D 预览…")
               : null,
-            e("canvas", { ref: previewThreeCanvasRef, className: "fp-preview3d-canvas" }),
+            e("div", {
+              ref: previewCesiumContainerRef,
+              className: "fp-preview3d-cesium" + (cesiumPreviewEnabled ? " is-active" : "")
+            }),
+            e("canvas", {
+              ref: previewThreeCanvasRef,
+              className: "fp-preview3d-canvas",
+              style: { display: cesiumPreviewEnabled ? "none" : "block" }
+            }),
             e(
               "div",
               { className: "fp-preview3d-help" },

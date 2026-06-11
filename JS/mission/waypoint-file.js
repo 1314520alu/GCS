@@ -6,35 +6,56 @@
 
   const WPL_VERSION = "QGC WPL 110";
 
+  function roundWplNumber(value, decimals) {
+    const factor = Math.pow(10, decimals);
+    return Math.round(Number(value) * factor) / factor;
+  }
+
+  function formatWplNumber(value, decimals) {
+    return roundWplNumber(value, decimals).toFixed(decimals);
+  }
+
   function commandToRow(wp, seq) {
-    const frame =
-      wp.frame != null ? wp.frame : MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
-    const p1 = Number(wp.param1) || 0;
-    const p2 = Number(wp.param2) || 0;
-    const p3 = Number(wp.param3) || 0;
-    const p4 = Number(wp.param4) || 0;
-    const lat = Number(wp.lat) || 0;
-    const lng = Number(wp.lng) || 0;
-    const alt =
+    const AP = window.ArdupilotMissionCompat;
+    let frame = AP && AP.normalizeFrameForMissionPlannerExport
+      ? AP.normalizeFrameForMissionPlannerExport(wp, seq)
+      : (wp.frame != null ? wp.frame : MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT);
+    let p1 = Number(wp.param1) || 0;
+    let p2 = Number(wp.param2) || 0;
+    let p3 = Number(wp.param3) || 0;
+    let p4 = Number(wp.param4) || 0;
+    let lat = Number(wp.lat) || 0;
+    let lng = Number(wp.lng) || 0;
+    let alt =
       Number(wp.alt) != null && Number.isFinite(Number(wp.alt))
         ? Number(wp.alt)
         : 0;
     const cmd = Number(wp.command) || MM.MAV_CMD.NAV_WAYPOINT;
-    const AP = window.ArdupilotMissionCompat;
     const isHome = AP && AP.isHomeRow && AP.isHomeRow(wp, seq);
     const current = isHome || seq === 0 ? 1 : 0;
+
+    if (cmd === MM.MAV_CMD.DO_SET_CAM_TRIGG_DIST) {
+      lat = 0;
+      lng = 0;
+      alt = 0;
+      if (p1 <= 0) {
+        p1 = 0;
+      }
+      p3 = 1;
+    }
+
     return [
       seq,
       current,
       frame,
       cmd,
-      p1,
-      p2,
-      p3,
-      p4,
-      lat,
-      lng,
-      alt,
+      formatWplNumber(p1, 8),
+      formatWplNumber(p2, 8),
+      formatWplNumber(p3, 8),
+      formatWplNumber(p4, 8),
+      formatWplNumber(lat, 8),
+      formatWplNumber(lng, 8),
+      formatWplNumber(alt, 6),
       1
     ].join("\t");
   }
@@ -42,16 +63,20 @@
   function serializeWaypointFile(waypoints, platform) {
     const lines = [WPL_VERSION];
     let list = waypoints || [];
+    const AP = window.ArdupilotMissionCompat;
     const FWP = window.FixedWingParams;
     if (FWP && FWP.normalizeWaypointsForPlatform && platform) {
       list = FWP.normalizeWaypointsForPlatform(list, platform);
     }
+    if (AP && AP.normalizeWaypointsForMissionPlannerExport) {
+      list = AP.normalizeWaypointsForMissionPlannerExport(list);
+    }
     list = MM.renumberWaypoints(list);
     if (
-      window.ArdupilotMissionCompat &&
-      window.ArdupilotMissionCompat.expandWithHomeRow
+      AP &&
+      AP.expandWithHomeRow
     ) {
-      list = window.ArdupilotMissionCompat.expandWithHomeRow(list);
+      list = AP.expandWithHomeRow(list);
     }
     list.forEach(function (wp, index) {
       lines.push(commandToRow(wp, index));
@@ -73,7 +98,7 @@
       throw new Error("不是 QGC WPL 航点文件");
     }
 
-    const waypoints = [];
+    let waypoints = [];
     for (let i = 1; i < lines.length; i += 1) {
       const parts = lines[i].split(/\s+/);
       if (parts.length < 12) {
@@ -106,6 +131,15 @@
           source: isCameraCmd ? "camera" : "file",
           mapVisible: !isCameraCmd
         })
+      );
+    }
+
+    if (
+      window.ArdupilotMissionCompat &&
+      window.ArdupilotMissionCompat.normalizeWaypointsFromMissionPlannerImport
+    ) {
+      waypoints = window.ArdupilotMissionCompat.normalizeWaypointsFromMissionPlannerImport(
+        waypoints
       );
     }
 

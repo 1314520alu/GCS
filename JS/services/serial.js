@@ -20,6 +20,7 @@ const GCS_TAB_ID = _gcsTabId;
 window._pendingParamRequest = false;
 window._bridgeMode = window._bridgeMode || "bridge";
 window._bridgeConnActive = window._bridgeConnActive || false;
+window._tcpConnActive = window._tcpConnActive || false;
 
 function shouldAutoLoadParams() {
   try {
@@ -108,6 +109,33 @@ async function bridgeWriteBytes(bytes) {
     }
     throw err;
   }
+}
+
+async function tcpFetch(path, body = null) {
+  const fetchOpts = body ? {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+      "X-GCS-Tab-Id": GCS_TAB_ID
+    },
+    body: JSON.stringify(body),
+  } : {
+    method: "GET",
+    headers: { "X-GCS-Tab-Id": GCS_TAB_ID }
+  };
+  const resp = await fetch(`http://127.0.0.1:8765${path}`, fetchOpts);
+  const text = await resp.text();
+  let data = {};
+  try { data = JSON.parse(text); } catch (_) {}
+  if (!resp.ok || data?.ok === false) {
+    throw new Error(data?.error || `tcp ${path} failed (${resp.status})`);
+  }
+  return data;
+}
+
+async function tcpWriteBytes(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  return tcpFetch("/tcp-write", { data: bridgeBytesToBase64(arr) });
 }
 
 function resolveBridgeDeviceId(selectedValue, optionMeta, comSelect) {
@@ -236,6 +264,55 @@ async function bridgeReadLoop() {
 }
 
 let _bridgeDataWatchdog = null;
+async function forceDisconnectAfterLinkLoss(reason) {
+  const state = String(window._gcsConnState || "").toLowerCase();
+  if (state !== "connected" && state !== "connecting") return;
+  try {
+    await closeSerialResources({ fast: true });
+  } catch (_) { /* ignore */ }
+  window._bridgeConnActive = false;
+  setConnectionUI("disconnected");
+  if (typeof window.markGcsSessionDisconnected === "function") {
+    window.markGcsSessionDisconnected();
+  }
+  try {
+    if (typeof log === "function" && reason) {
+      log(`🔌 检测到链路断开（${reason}），已恢复未连接状态。`, "bridge");
+    }
+  } catch (_) { /* ignore */ }
+}
+
+async function tcpReadLoop() {
+  while (window._tcpConnActive) {
+    try {
+      let bursts = 0;
+      while (window._tcpConnActive && bursts < 24) {
+        const data = await tcpFetch("/tcp-read");
+        const chunk = bridgeBase64ToBytes(data?.data || "");
+        if (!chunk.length) break;
+        bursts += 1;
+        const rx = window.buf;
+        for (let i = 0; i < chunk.length; i++) rx.push(chunk[i]);
+        if (typeof parse === "function") {
+          parse();
+          let drain = 0;
+          while (rx.length > 2048 && drain < 16 && typeof parse === "function") {
+            parse();
+            drain += 1;
+          }
+        }
+      }
+      await new Promise((r) => setTimeout(r, bursts ? 12 : 40));
+    } catch (e) {
+      const msg = e?.message || String(e);
+      log(`TCP 读取失败: ${msg}`);
+      window._tcpConnActive = false;
+      setConnectionUI("error");
+      return;
+    }
+  }
+}
+window.forceDisconnectAfterLinkLoss = forceDisconnectAfterLinkLoss;
 function startBridgeDataWatchdog() {
   if (_bridgeDataWatchdog) clearInterval(_bridgeDataWatchdog);
   _bridgeDataWatchdog = setInterval(async () => {
@@ -262,18 +339,21 @@ function startBridgeDataWatchdog() {
 async function waitForFirstMavlinkPacket(opts = {}) {
   const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 8000;
   const sessionId = Number(opts.sessionId || 0);
+  const transport = String(opts.transport || "bridge");
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     if (window._lastMavlinkRxMs && window._lastMavlinkRxMs >= startedAt) {
       return true;
     }
     try {
-      const st = await bridgeFetch("/bridge-status", null, { skipEnsure: true });
+      const st = transport === "tcp"
+        ? await tcpFetch("/tcp-status")
+        : await bridgeFetch("/bridge-status", null, { skipEnsure: true });
       if (sessionId && Number(st?.sessionId || 0) !== sessionId) {
-        throw new Error("bridge session changed");
+        throw new Error(`${transport} session changed`);
       }
       if (st?.readerAlive === false) {
-        throw new Error(st?.error || "bridge reader stopped");
+        throw new Error(st?.error || `${transport} reader stopped`);
       }
       if (typeof st?.bytesRx === "number" && st.bytesRx > 0 && typeof st?.lastRxAgeSec === "number" && st.lastRxAgeSec < 2) {
         // 给解析器一点时间把原始串口字节转成首个 MAVLink 包
@@ -326,6 +406,7 @@ async function closeSerialResources(opts) {
   }
   window._missionUploadActive = false;
   window._bridgeConnActive = false;
+  window._tcpConnActive = false;
 
   const p = window.port;
   const r = typeof reader !== "undefined" ? reader : null;
@@ -403,6 +484,9 @@ async function closeSerialResources(opts) {
     try {
       await bridgeFetch("/bridge-close", {}, { skipEnsure: true });
     } catch (_) { /* ignore */ }
+    try {
+      await tcpFetch("/tcp-close", {});
+    } catch (_) { /* ignore */ }
   }
 }
 
@@ -430,11 +514,14 @@ function setConnectionUI(state) {
     document.dispatchEvent(new CustomEvent("gcs-connection", { detail: { state } }));
   } catch (e) { /* ignore */ }
   const comSelect = document.getElementById("comPort");
+  const connModeEl = document.getElementById("connMode");
   const btn = document.getElementById("connectBtn");
   const baudEl = document.getElementById("serialBaud");
   if (!comSelect || !btn) return;
+  const connMode = connModeEl ? String(connModeEl.value || "bridge") : "bridge";
 
-  if (baudEl) baudEl.disabled = state === "connecting" || state === "connected";
+  if (baudEl) baudEl.disabled = state === "connecting" || state === "connected" || connMode === "tcp";
+  if (connModeEl) connModeEl.disabled = state === "connecting" || state === "connected";
 
   comSelect.classList.remove("com-disconnected", "com-connecting", "com-connected", "com-error");
   btn.classList.remove("connecting", "connected", "error");
@@ -457,9 +544,12 @@ function setConnectionUI(state) {
   } else {
     comSelect.classList.add("com-disconnected");
     btn.disabled = false;
-    btn.textContent = comSelect.value === "__refresh_bridge__" ? "刷新串口" : "连接串口";
+    btn.textContent = connMode === "tcp"
+      ? "连接 TCP"
+      : (comSelect.value === "__refresh_bridge__" ? "刷新串口" : "连接串口");
   }
 }
+window.setConnectionUI = setConnectionUI;
 
 function hasActiveConnectionRuntime() {
   if (window._bridgeConnActive === true) return true;
@@ -700,11 +790,15 @@ async function connect() {
 
 async function connectImpl() {
   const comSelect = document.getElementById("comPort");
+  const connModeEl = document.getElementById("connMode");
+  const tcpHostEl = document.getElementById("tcpHost");
+  const tcpPortEl = document.getElementById("tcpPort");
   if (!comSelect) {
     log("❌ 页面未就绪：找不到串口下拉框");
     return;
   }
   let selectedValue = comSelect.value;
+  const connMode = connModeEl ? String(connModeEl.value || "bridge") : "bridge";
 
   if (window._gcsConnState === "connecting") {
     log("⚠️ 正在连接中，请稍候…");
@@ -784,6 +878,79 @@ async function connectImpl() {
     armConnectWatchdog();
 
     await closeSerialResources();
+
+    if (connMode === "tcp") {
+      const host = String(tcpHostEl?.value || "").trim();
+      const port = parseInt(String(tcpPortEl?.value || "").trim(), 10);
+      if (!host) {
+        log("TCP 连接失败：请先输入 IP/主机名");
+        setConnectionUI("error");
+        return;
+      }
+      if (!Number.isFinite(port) || port <= 0) {
+        log("TCP 连接失败：请输入有效端口");
+        setConnectionUI("error");
+        return;
+      }
+      try {
+        const opened = await tcpFetch("/tcp-open", { host, port, timeout: 10 });
+        const tcpSessionId = Number(opened?.sessionId || 0);
+        bumpConnectionSession();
+        window._tcpConnActive = true;
+        window.port = { tcp: true, close: async () => { await tcpFetch("/tcp-close", {}); } };
+        writer = { write: async (bytes) => tcpWriteBytes(bytes) };
+        window.writer = writer;
+        reader = { cancel: async () => {}, releaseLock: () => {} };
+        window.reader = reader;
+        log(`TCP 已打开：${opened.endpoint || `${host}:${port}`}，等待首个 MAVLink 数据…`);
+        window._readLoopLostWarned = false;
+        window._lastMavlinkRxMs = 0;
+        tcpReadLoop();
+        await waitForFirstMavlinkPacket({
+          sessionId: tcpSessionId,
+          timeoutMs: Math.min(connectWatchdogMs - 3000, 9000),
+          transport: "tcp",
+        });
+        if (window._heartbeatInterval) clearInterval(window._heartbeatInterval);
+        window._heartbeatInterval = setInterval(sendHeartbeat, 1000);
+        sendHeartbeat().catch(() => {});
+        setTimeout(() => sendHeartbeat().catch(() => {}), 250);
+        setConnectionUI("connected");
+        log(`TCP 已连接：${opened.endpoint || `${host}:${port}`}，已收到首个 MAVLink 数据`);
+        try {
+          localStorage.setItem("gcs.connMode", "tcp");
+          localStorage.setItem("gcs.tcpHost", host);
+          localStorage.setItem("gcs.tcpPort", String(port));
+        } catch (_) { /* ignore */ }
+        if (typeof window.markGcsSessionConnected === "function") {
+          window.markGcsSessionConnected();
+        }
+        schedulePostConnectMavlinkInfoRequests();
+        if (typeof window.applyConnectionTelemetrySetup === "function") {
+          window.applyConnectionTelemetrySetup()
+            .then(() => {
+              if (typeof window.startTelemetryMaintenance === "function") {
+                window.startTelemetryMaintenance(window._telemetryProfile || "sr0");
+              }
+            })
+            .catch((e) => log(`TCP 遥测初始化失败: ${e?.message || e}`));
+        }
+        if (window._pendingParamRequest || shouldAutoLoadParams()) {
+          window._pendingParamRequest = false;
+          if (typeof window.loadParams === "function") {
+            window.loadParams({ force: true }).catch(() => {});
+          }
+        }
+        disarmConnectWatchdog();
+        return;
+      } catch (tcpErr) {
+        window._tcpConnActive = false;
+        try { await tcpFetch("/tcp-close", {}); } catch (_) { /* ignore */ }
+        log(`TCP 连接失败：${tcpErr?.message || tcpErr}`);
+        setConnectionUI("error");
+        return;
+      }
+    }
 
     const optionMetaEarly = window._comOptionMap?.get(selectedValue);
     const useBridge = !!selectedValue && shouldUseBridgeForSelection(selectedValue, optionMetaEarly);

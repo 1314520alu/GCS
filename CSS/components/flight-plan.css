@@ -866,6 +866,32 @@
   height: 100%;
 }
 
+.fp-preview3d-cesium {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.fp-preview3d-cesium.is-active {
+  display: block;
+}
+
+.fp-preview3d-cesium .cesium-viewer,
+.fp-preview3d-cesium .cesium-widget,
+.fp-preview3d-cesium .cesium-widget canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.fp-preview3d-cesium .cesium-viewer-toolbar,
+.fp-preview3d-cesium .cesium-viewer-animationContainer,
+.fp-preview3d-cesium .cesium-viewer-timelineContainer,
+.fp-preview3d-cesium .cesium-viewer-bottom,
+.fp-preview3d-cesium .cesium-viewer-fullscreenContainer,
+.fp-preview3d-cesium .cesium-viewer-cesiumWidgetContainer .cesium-credit-container {
+  display: none !important;
+}
+
 .fp-preview3d-loading {
   position: absolute;
   inset: 14px auto auto 14px;

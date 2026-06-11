@@ -1218,3 +1218,33 @@
     justify-content: flex-start;
   }
 }
+
+/* ===== RTK 专业功能增强样式 ===== */
+.rtk-survey-card .rtk-survey-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rtk-range-wrap { display: flex; align-items: center; gap: 8px; }
+.rtk-range-wrap input[type="range"] { flex: 1; }
+.rtk-survey-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; font-size: 12px; }
+.rtk-survey-kv { background: #0f1623; padding: 4px 8px; border-radius: 4px; }
+.rtk-survey-kv span { display: block; font-size: 11px; color: #8c98ab; }
+.rtk-survey-kv strong { font-size: 13px; }
+.rtk-progress-wrap { margin-top: 8px; }
+.rtk-progress-bar { height: 6px; background: #1f2a3d; border-radius: 3px; overflow: hidden; }
+.rtk-progress-bar > div { height: 100%; background: #00acc1; transition: width .2s linear; }
+.rtk-progress-text { font-size: 12px; margin-top: 4px; color: #8c98ab; }
+
+.rtk-ntrip-grid { display: grid; grid-template-columns: 1fr 80px; gap: 8px 12px; }
+.rtk-ntrip-status { margin-top: 8px; display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.rtk-tag { padding: 1px 8px; border-radius: 3px; font-size: 11px; }
+.rtk-tag.is-muted { background: #1f2a3d; color: #8c98ab; }
+.rtk-tag.is-good { background: rgba(53,212,138,.2); color: #35d48a; }
+.rtk-tag.is-bad { background: rgba(242,104,104,.2); color: #f26868; }
+
+.rtk-instances { display: flex; flex-direction: column; gap: 6px; }
+.rtk-inst-row { display: flex; justify-content: space-between; font-size: 12px; background: #0f1623; padding: 4px 8px; border-radius: 4px; }
+.rtk-inst-row .label { color: #8c98ab; }
+.rtk-inst-row .value { font-weight: 600; }
+
+.rtk-card-actions { display: flex; gap: 6px; }
+.gps-card-action.is-danger { background: #5c2a2a; color: #f5c4c4; border-color: #7a3a3a; }
+
+.rtk-note { font-size: 11px; color: #8c98ab; margin-top: 6px; }

@@ -93,7 +93,7 @@
     }
     wp.lng = round6(wp.lng);
     wp.lat = round6(wp.lat);
-    wp.alt = Number(wp.alt) || 0;
+    wp.alt = round6(Number(wp.alt) || 0);
     return wp;
   }
 
@@ -205,7 +205,7 @@
       alt: afterWp.alt,
       command: MAV_CMD.DO_SET_CAM_TRIGG_DIST,
       frame: MAV_FRAME_MISSION,
-      param1: Math.max(0.5, Number(triggerDistanceMeters) || 0),
+      param1: round6(Math.max(0.5, Number(triggerDistanceMeters) || 0)),
       param2: 0,
       param3: 1,
       source: "camera",

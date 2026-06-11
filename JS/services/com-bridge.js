@@ -3,11 +3,64 @@ window._comOptionMap = window._comOptionMap || new Map();
 window._systemComPorts = window._systemComPorts || [];
 window._autoConnectAttempts = 0;
 
+function applyConnectionModeUi() {
+  const modeEl = document.getElementById("connMode");
+  const comEl = document.getElementById("comPort");
+  const baudLabel = document.querySelector('label[for="serialBaud"]');
+  const baudEl = document.getElementById("serialBaud");
+  const autoBaud = document.querySelector('label[for="autoBaudProbe"]');
+  const tcpHostEl = document.getElementById("tcpHost");
+  const tcpPortEl = document.getElementById("tcpPort");
+  const connectBtn = document.getElementById("connectBtn");
+  const mode = modeEl ? String(modeEl.value || "bridge") : "bridge";
+  const isTcp = mode === "tcp";
+
+  if (comEl) comEl.hidden = isTcp;
+  if (baudLabel) baudLabel.hidden = isTcp;
+  if (baudEl) baudEl.hidden = isTcp;
+  if (autoBaud) autoBaud.hidden = isTcp;
+  if (tcpHostEl) tcpHostEl.hidden = !isTcp;
+  if (tcpPortEl) tcpPortEl.hidden = !isTcp;
+  if (connectBtn && window._gcsConnState !== "connected" && window._gcsConnState !== "connecting") {
+    connectBtn.textContent = isTcp ? "连接 TCP" : "连接串口";
+  }
+
+  try {
+    localStorage.setItem("gcs.connMode", mode);
+    if (tcpHostEl && tcpHostEl.value) localStorage.setItem("gcs.tcpHost", tcpHostEl.value);
+    if (tcpPortEl && tcpPortEl.value) localStorage.setItem("gcs.tcpPort", tcpPortEl.value);
+  } catch (_) { /* ignore */ }
+
+  if (typeof window.setConnectionUI === "function") {
+    window.setConnectionUI(window._gcsConnState || "disconnected");
+  }
+}
+
+function initConnectionModeUi() {
+  const modeEl = document.getElementById("connMode");
+  const tcpHostEl = document.getElementById("tcpHost");
+  const tcpPortEl = document.getElementById("tcpPort");
+  if (!modeEl) return;
+
+  try {
+    const savedMode = localStorage.getItem("gcs.connMode") || "bridge";
+    modeEl.value = savedMode === "tcp" ? "tcp" : "bridge";
+    if (tcpHostEl) tcpHostEl.value = localStorage.getItem("gcs.tcpHost") || tcpHostEl.value || "192.168.4.1";
+    if (tcpPortEl) tcpPortEl.value = localStorage.getItem("gcs.tcpPort") || tcpPortEl.value || "5760";
+  } catch (_) { /* ignore */ }
+
+  modeEl.addEventListener("change", applyConnectionModeUi);
+  tcpHostEl?.addEventListener("change", applyConnectionModeUi);
+  tcpPortEl?.addEventListener("change", applyConnectionModeUi);
+  applyConnectionModeUi();
+}
+
 function systemComPorts() {
   return Array.isArray(window._systemComPorts) ? window._systemComPorts : [];
 }
 const AUTO_CONNECT_MAX_ATTEMPTS = 20;
 const AUTO_CONNECT_LATE_RETRY_MS = [8000, 15000, 30000];
+const AUTO_CONNECT_BACKOFF_MS = [2000, 5000, 12000, 30000, 60000];
 const BRIDGE_API = "http://127.0.0.1:8765";
 let ensureBridgePromise = null;
 let _bridgeFreshInFlight = null;
@@ -88,13 +141,12 @@ async function probeBridgeHealth() {
   if (typeof window._comBridgeProbeBackoffUntil === "number" && Date.now() < window._comBridgeProbeBackoffUntil) {
     return false;
   }
-    try {
+  try {
     const resp = await fetch(`${BRIDGE_API}/health`, { cache: "no-store" });
     window._comBridgeProbeBackoffUntil = 0;
     if (resp.ok) {
       window._comBridgeOnline = true;
       window._comBridgeBackoffUntil = 0;
-      resetAutoConnectAttempts();
       try {
         const j = await resp.clone().json();
         window._lastBridgeScriptMtime = j && j.scriptMtime ? j.scriptMtime : null;
@@ -670,17 +722,25 @@ function preferMavlinkConnectTarget(comSelect, target) {
 
 function resetAutoConnectAttempts() {
   window._autoConnectAttempts = 0;
+  window._autoConnectRetryUntil = 0;
 }
 
 function noteAutoConnectFailure() {
   window._autoConnectAttempts = (window._autoConnectAttempts || 0) + 1;
+  const idx = Math.min(window._autoConnectAttempts - 1, AUTO_CONNECT_BACKOFF_MS.length - 1);
+  const delay = AUTO_CONNECT_BACKOFF_MS[idx] || AUTO_CONNECT_BACKOFF_MS[AUTO_CONNECT_BACKOFF_MS.length - 1];
+  window._autoConnectRetryUntil = Date.now() + delay;
 }
 
 let _tryAutoConnectInFlight = false;
 
 async function tryAutoConnect() {
+  try {
+    if ((localStorage.getItem("gcs.connMode") || "bridge") === "tcp") return;
+  } catch (_) { /* ignore */ }
   if (!shouldAutoReconnectOnLoad()) return;
   if (window._gcsConnState === "connected" || window._gcsConnState === "connecting") return;
+  if (typeof window._autoConnectRetryUntil === "number" && Date.now() < window._autoConnectRetryUntil) return;
   if (_tryAutoConnectInFlight) return;
   _tryAutoConnectInFlight = true;
 
@@ -762,7 +822,17 @@ async function tryAutoConnect() {
       .finally(() => {
         window._gcsAutoConnectActive = false;
         _tryAutoConnectInFlight = false;
-        if (window._gcsConnState !== "connected") noteAutoConnectFailure();
+        if (window._gcsConnState !== "connected") {
+          noteAutoConnectFailure();
+          if (window._gcsConnState === "connecting") {
+            window._gcsConnState = "disconnected";
+            if (typeof window.forceDisconnectAfterLinkLoss === "function") {
+              window.forceDisconnectAfterLinkLoss("auto-connect failed").catch(() => {});
+            } else {
+              setConnectionUI("disconnected");
+            }
+          }
+        }
       });
   };
   setTimeout(runConnect, window.__gcsRuntimeNative ? 120 : 220);
@@ -956,6 +1026,8 @@ function initComPortAutoRefresh() {
   window._gcsJustReloaded = true;
   setTimeout(() => { window._gcsJustReloaded = false; }, 8000);
 
+  initConnectionModeUi();
+
   if (document.getElementById("comPort")) {
     refreshPorts({ probeBridge: true, forceBridgeProbe: false }).catch(() => {});
   }
@@ -1005,7 +1077,12 @@ function initComPortAutoRefresh() {
 
   if (navigator.serial && navigator.serial.addEventListener) {
     navigator.serial.addEventListener("connect", () => refreshPorts({ probeBridge: true }));
-    navigator.serial.addEventListener("disconnect", () => refreshPorts({ probeBridge: true }));
+    navigator.serial.addEventListener("disconnect", () => {
+      refreshPorts({ probeBridge: true });
+      if (typeof window.forceDisconnectAfterLinkLoss === "function") {
+        window.forceDisconnectAfterLinkLoss("navigator.serial disconnect").catch(() => {});
+      }
+    });
   }
 
   if (window._portAutoRefreshTimer) clearInterval(window._portAutoRefreshTimer);

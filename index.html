@@ -31,6 +31,7 @@
 <link rel="stylesheet" href="CSS/components/safety-setup.css">
 <link rel="stylesheet" href="CSS/components/gps-setup.css">
 <link rel="stylesheet" href="CSS/components/radar-setup.css">
+<link rel="stylesheet" href="vendor/cesium/Build/Cesium/Widgets/widgets.css">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css"/>
 </head>
 <body>
@@ -68,9 +69,15 @@
   </nav>
   <div class="top-bar__divider" aria-hidden="true"></div>
   <div class="top-bar__link">
+    <select id="connMode" title="选择飞控连接方式">
+      <option value="bridge" selected>串口</option>
+      <option value="tcp">TCP</option>
+    </select>
     <select id="comPort">
       <option value="__add__">＋ 选择飞控 USB 串口（首次连接）…</option>
     </select>
+    <input id="tcpHost" type="text" placeholder="TCP IP / Host" value="192.168.4.1" hidden>
+    <input id="tcpPort" type="number" min="1" max="65535" step="1" placeholder="端口" value="5760" hidden>
     <label class="top-bar-baud" for="serialBaud" title="USB 虚拟串口常可设较高波特率；须与飞控 SERIAL 端口波特率一致">波特率</label>
     <select id="serialBaud" class="top-bar-baud-select" title="须与飞控该串口波特率一致（USB 可尝试 921600 等）">
       <option value="57600">57600</option>
@@ -862,11 +869,11 @@
             <div class="gps-header-copy">
               <div class="gps-title-row">
                 <div>
-                  <h3>RTK 页面</h3>
-                  <p class="muted">专管差分来源、注入目标、链路健康与实例绑定</p>
+                  <h3>RTK 设置</h3>
+                  <p class="muted">差分来源、Survey-In、NTRIP 注入、移动基线与实例绑定（独立于 GPS 接收机硬件配置）</p>
                 </div>
                 <div class="gps-header-tags">
-                  <button type="button" id="rtk-back-to-gps" class="gps-inline-link gps-inline-link--boxed">返回 GPS 页面</button>
+                  <button type="button" id="rtk-back-to-gps" class="gps-inline-link gps-inline-link--boxed">返回 GPS 设置</button>
                 </div>
               </div>
             </div>
@@ -891,81 +898,136 @@
                 <strong id="rtk-age-pill" class="gps-status-value">--</strong>
               </div>
               <div class="gps-status-pill">
-                <span class="gps-status-label">绑定实例</span>
-                <strong id="rtk-bind-pill" class="gps-status-value">GPS1</strong>
+                <span class="gps-status-label">注入速率</span>
+                <strong id="rtk-rate-pill" class="gps-status-value">--</strong>
               </div>
             </div>
           </section>
 
           <div class="rtk-layout">
             <section class="rtk-main-column">
-              <section class="gps-config-card card-dark">
+              <section class="gps-config-card card-dark rtk-survey-card">
                 <div class="gps-card-head">
                   <div>
-                    <h4>差分来源</h4>
-                    <p class="muted">来源切换只影响 RTK 注入与链路状态摘要，不改变 GPS 主实例参数</p>
+                    <h4>Survey-In（基站自标定）</h4>
+                    <p class="muted">让当前 GPS 作为差分基站，自动计算精确位置</p>
                   </div>
-                  <button type="button" id="rtk-write-source-btn" class="gps-card-action">写入此卡</button>
+                  <div class="rtk-card-actions">
+                    <button type="button" id="rtk-survey-start" class="gps-card-action">开始 Survey-In</button>
+                    <button type="button" id="rtk-survey-stop" class="gps-card-action is-danger" disabled>停止</button>
+                  </div>
                 </div>
-                <div id="rtk-source-tabs" class="rtk-source-tabs" role="tablist" aria-label="RTK 来源">
-                  <button type="button" class="rtk-source-tab active" data-rtk-source="none">无 RTK</button>
-                  <button type="button" class="rtk-source-tab" data-rtk-source="cors">千寻 / CORS</button>
-                  <button type="button" class="rtk-source-tab" data-rtk-source="moving">移动基站</button>
-                </div>
-                <div class="gps-config-fields">
-                  <label class="gps-field">
-                    <span>注入目标</span>
-                    <select id="rtk-inject-target" data-param-key="GPS_INJECT_TO"></select>
-                  </label>
-                  <label class="gps-field">
-                    <span>首选实例</span>
-                    <select id="rtk-primary-target" data-param-key="GPS_PRIMARY"></select>
-                  </label>
+                <div class="gps-config-fields rtk-survey-fields">
+                  <div class="rtk-survey-row">
+                    <label class="gps-field">
+                      <span>目标精度</span>
+                      <div class="rtk-range-wrap">
+                        <input id="rtk-survey-acc" type="range" min="0.1" max="5" step="0.1" value="2.0">
+                        <span id="rtk-survey-acc-val">2.0 m</span>
+                      </div>
+                    </label>
+                    <label class="gps-field">
+                      <span>最小观测时间</span>
+                      <div class="rtk-range-wrap">
+                        <input id="rtk-survey-dur" type="range" min="30" max="600" step="30" value="120">
+                        <span id="rtk-survey-dur-val">120 s</span>
+                      </div>
+                    </label>
+                  </div>
+                  <div class="rtk-survey-status">
+                    <div class="rtk-survey-kv">
+                      <span>当前精度 (hAcc)</span>
+                      <strong id="rtk-survey-cur-acc">--</strong>
+                    </div>
+                    <div class="rtk-survey-kv">
+                      <span>已观测时间</span>
+                      <strong id="rtk-survey-time">--</strong>
+                    </div>
+                    <div class="rtk-survey-kv">
+                      <span>状态</span>
+                      <strong id="rtk-survey-state">未开始</strong>
+                    </div>
+                  </div>
+                  <div class="rtk-progress-wrap" id="rtk-survey-progress-wrap" hidden>
+                    <div class="rtk-progress-bar"><div id="rtk-survey-progress" style="width:0%"></div></div>
+                    <div class="rtk-progress-text" id="rtk-survey-progress-text">等待开始...</div>
+                  </div>
                 </div>
               </section>
 
               <section class="gps-config-card card-dark">
                 <div class="gps-card-head">
                   <div>
-                    <h4>来源配置</h4>
-                    <p id="rtk-source-summary" class="muted">当前未启用 RTK 来源。</p>
+                    <h4>NTRIP / 网络差分 (CORS)</h4>
+                    <p class="muted">连接千寻、华测或其他 NTRIP caster 获取实时差分</p>
+                  </div>
+                  <button type="button" id="rtk-ntrip-connect" class="gps-card-action">连接</button>
+                </div>
+                <div class="gps-config-fields">
+                  <div class="rtk-ntrip-grid">
+                    <label class="gps-field"><span>Caster 地址</span><input id="rtk-ntrip-host" type="text" value="rtk.ntrip.qxwz.com" placeholder="caster.example.com"></label>
+                    <label class="gps-field"><span>端口</span><input id="rtk-ntrip-port" type="number" value="8002"></label>
+                    <label class="gps-field"><span>挂载点 (Mount Point)</span><input id="rtk-ntrip-mount" type="text" value="AUTO" placeholder="AUTO / RTCM32"></label>
+                    <label class="gps-field"><span>用户名</span><input id="rtk-ntrip-user" type="text" placeholder="用户名"></label>
+                    <label class="gps-field"><span>密码</span><input id="rtk-ntrip-pass" type="password" placeholder="密码"></label>
+                  </div>
+                  <div class="rtk-ntrip-status">
+                    <span id="rtk-ntrip-state" class="rtk-tag is-muted">未连接</span>
+                    <span id="rtk-ntrip-rate">注入速率: --</span>
                   </div>
                 </div>
-                <div id="rtk-source-panels">
-                  <div class="rtk-source-panel active" data-rtk-source-panel="none">
-                    <div class="gps-note muted">RTK 未启用时，GPS 页面仍可独立配置接收机、偏移和双 GPS 融合。</div>
-                  </div>
-                  <div class="rtk-source-panel" data-rtk-source-panel="cors" hidden>
-                    <div class="gps-config-fields">
-                      <label class="gps-field">
-                        <span>接入方式</span>
-                        <select id="rtk-cors-mode">
-                          <option value="qx">千寻 CORS</option>
-                          <option value="ntrip">NTRIP / 网络差分</option>
-                        </select>
-                      </label>
-                      <label class="gps-field">
-                        <span>链路状态说明</span>
-                        <input id="rtk-cors-note" type="text" placeholder="例如：通过 WebSerial/外部网关注入">
-                      </label>
-                    </div>
-                  </div>
-                  <div class="rtk-source-panel" data-rtk-source-panel="moving" hidden>
-                    <div class="gps-config-fields">
-                      <label class="gps-field">
-                        <span>移动基站角色</span>
-                        <select id="rtk-moving-role">
-                          <option value="ublox-base">uBlox 移动基线基站</option>
-                          <option value="dronecan-base">DroneCAN 移动基线基站</option>
-                        </select>
-                      </label>
-                      <label class="gps-field">
-                        <span>链路说明</span>
-                        <input id="rtk-moving-note" type="text" placeholder="例如：专用 CAN 口 / UART2">
-                      </label>
-                    </div>
+              </section>
+
+              <section class="gps-config-card card-dark">
+                <div class="gps-card-head">
+                  <div>
+                    <h4>移动基线 (Moving Baseline)</h4>
+                    <p class="muted">双 GPS 相对定位，用于航向 (yaw) 或精确相对位置</p>
                   </div>
                 </div>
+                <div class="gps-config-fields">
+                  <label class="gps-field">
+                    <span>本机角色</span>
+                    <select id="rtk-moving-role">
+                      <option value="0">关闭</option>
+                      <option value="1">Base（基站）</option>
+                      <option value="2">Rover（流动站）</option>
+                    </select>
+                  </label>
+                  <label class="gps-field">
+                    <span>注入目标（与上面一致）</span>
+                    <select id="rtk-inject-target" data-param-key="GPS_INJECT_TO"></select>
+                  </label>
+                  <label class="gps-field">
+                    <span>首选实例</span>
+                    <select id="rtk-primary-target" data-param-key="GPS_PRIMARY"></select>
+                  </label>
+                  <div class="rtk-note">移动基线通常需要专用链路（CAN 或 UART）。启用后请在 GPS 设置中确认 GPS_DRV_OPTIONS。</div>
+                </div>
+                <div class="gps-card-foot">
+                  <button type="button" id="rtk-write-mb-btn" class="gps-card-action">写入移动基线相关参数</button>
+                </div>
+              </section>
+
+              <section class="gps-config-card card-dark">
+                <div class="gps-card-head">
+                  <div>
+                    <h4>注入与实例绑定</h4>
+                    <p class="muted">控制差分数据发往哪个 GPS 实例</p>
+                  </div>
+                  <button type="button" id="rtk-write-source-btn" class="gps-card-action">写入此卡</button>
+                </div>
+                <div class="gps-config-fields">
+                  <label class="gps-field">
+                    <span>注入目标</span>
+                    <select id="rtk-inject-target2" data-param-key="GPS_INJECT_TO"></select>
+                  </label>
+                  <label class="gps-field">
+                    <span>首选实例</span>
+                    <select id="rtk-primary-target2" data-param-key="GPS_PRIMARY"></select>
+                  </label>
+                </div>
+                <p id="rtk-source-summary" class="muted">当前未启用 RTK 来源。</p>
               </section>
             </section>
 
@@ -973,13 +1035,19 @@
               <section class="gps-rail-card">
                 <div class="gps-rail-head"><h4>链路健康</h4></div>
                 <div class="gps-rail-kv"><span>状态</span><strong id="rtk-health-label">未连接</strong></div>
-                <div class="gps-rail-kv"><span>最近更新时间</span><strong id="rtk-last-update">--</strong></div>
+                <div class="gps-rail-kv"><span>最近更新</span><strong id="rtk-last-update">--</strong></div>
                 <div class="gps-rail-kv"><span>延迟</span><strong id="rtk-latency">--</strong></div>
-                <div class="gps-rail-kv"><span>绑定关系</span><strong id="rtk-bind-side">GPS1</strong></div>
+                <div class="gps-rail-kv"><span>绑定</span><strong id="rtk-bind-side">GPS1</strong></div>
               </section>
+
+              <section class="gps-rail-card">
+                <div class="gps-rail-head"><h4>GPS 实例 RTK 状态</h4></div>
+                <div id="rtk-instances-status" class="rtk-instances"></div>
+              </section>
+
               <section class="gps-rail-card">
                 <div class="gps-rail-head"><h4>说明</h4></div>
-                <p class="gps-note muted">RTK 页只管理差分链路与实例绑定；GPS 接收机类型、星座和安装偏移仍在 GPS 页面维护。</p>
+                <p class="gps-note muted">RTK 设置独立管理差分链路。GPS 接收机类型、星座、安装偏移请在「GPS设置」中配置。</p>
               </section>
             </aside>
           </div>
@@ -1482,8 +1550,11 @@
 <script src="JS/ui/rtk-setup.js" defer></script>
 <script src="JS/ui/radar-setup.js" defer></script>
 <script src="JS/ui/geofence-viz-three.js" defer></script>
+<script src="vendor/cesium/Build/Cesium/Cesium.js" defer></script>
+<script src="local/cesium-ion.local.js" defer></script>
 <script src="https://unpkg.com/three@0.149.0/build/three.min.js" defer></script>
 <script src="JS/ui/accel-calib-three.js" defer></script>
+<script src="JS/ui/flight-plan-preview-cesium.js" defer></script>
 <script src="JS/ui/flight-plan-preview-three.js" defer></script>
 <script src="JS/ui/accel-calibration.js" defer></script>
 <script src="JS/ui/compass-calibration.js" defer></script>

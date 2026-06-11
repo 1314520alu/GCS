@@ -3,6 +3,9 @@
  * Renders route lines, terrain ribbon strips, waypoint markers, and vertical AGL guides.
  */
 (function initFlightPlanPreviewThree() {
+  const TILE_SERVER = window.TILE_SERVER || "http://127.0.0.1:8768";
+  const ESRI_IMAGERY_URL =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
   const CLEAR_COLOR = 0x09111a;
   const COLORS = {
     terrain: 0x223142,
@@ -242,6 +245,132 @@
       gridGroup.add(grid);
     }
 
+    function projectMetersToLngLat(point, origin) {
+      const metersPerLat = 111320;
+      const metersPerLng = Math.cos((origin.lat * Math.PI) / 180) * metersPerLat || 1;
+      return {
+        lng: origin.lng + point.x / metersPerLng,
+        lat: origin.lat + point.y / metersPerLat
+      };
+    }
+
+    function lngLatToTile(lng, lat, zoom) {
+      const n = Math.pow(2, zoom);
+      const x = Math.floor(((lng + 180) / 360) * n);
+      const latRad = (lat * Math.PI) / 180;
+      const y = Math.floor(
+        ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n
+      );
+      return { x: x, y: y, z: zoom };
+    }
+
+    function pickMapZoom(spanM) {
+      const span = Math.max(200, Number(spanM) || 200);
+      if (span > 40000) {
+        return 11;
+      }
+      if (span > 20000) {
+        return 12;
+      }
+      if (span > 10000) {
+        return 13;
+      }
+      if (span > 5000) {
+        return 14;
+      }
+      if (span > 2500) {
+        return 15;
+      }
+      if (span > 1200) {
+        return 16;
+      }
+      return 17;
+    }
+
+    function loadTileImage(url) {
+      return new Promise(function (resolve, reject) {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = function () {
+          resolve(img);
+        };
+        img.onerror = reject;
+        img.src = url;
+      });
+    }
+
+    function addMapBasemap(preview, nextBounds, drawOptions) {
+      if (!drawOptions.showTerrain) {
+        return;
+      }
+      const origin = preview && preview.origin;
+      if (!origin || !Number.isFinite(Number(origin.lat)) || !Number.isFinite(Number(origin.lng))) {
+        return;
+      }
+      const spanX = nextBounds.maxX - nextBounds.minX;
+      const spanZ = nextBounds.maxZ - nextBounds.minZ;
+      const centerLocalX = (nextBounds.minX + nextBounds.maxX) / 2;
+      const centerLocalZ = (nextBounds.minZ + nextBounds.maxZ) / 2;
+      const centerGeo = projectMetersToLngLat({ x: centerLocalX, y: centerLocalZ }, origin);
+      const zoom = pickMapZoom(Math.max(spanX, spanZ));
+      const centerTile = lngLatToTile(centerGeo.lng, centerGeo.lat, zoom);
+      const grid = 3;
+      const tileSize = 256;
+      const canvas = document.createElement("canvas");
+      canvas.width = tileSize * grid;
+      canvas.height = tileSize * grid;
+      const ctx = canvas.getContext("2d");
+      const jobs = [];
+      for (let dy = 0; dy < grid; dy += 1) {
+        for (let dx = 0; dx < grid; dx += 1) {
+          const tx = centerTile.x - 1 + dx;
+          const ty = centerTile.y - 1 + dy;
+          const localUrl =
+            TILE_SERVER + "/tiles/imagery/" + zoom + "/" + tx + "/" + ty + ".png";
+          const esriUrl = ESRI_IMAGERY_URL.replace("{z}", String(zoom))
+            .replace("{x}", String(tx))
+            .replace("{y}", String(ty));
+          jobs.push(
+            loadTileImage(localUrl)
+              .catch(function () {
+                return loadTileImage(esriUrl);
+              })
+              .then(function (img) {
+                ctx.drawImage(img, dx * tileSize, dy * tileSize, tileSize, tileSize);
+              })
+              .catch(function () {
+                ctx.fillStyle = "#1a2838";
+                ctx.fillRect(dx * tileSize, dy * tileSize, tileSize, tileSize);
+              })
+          );
+        }
+      }
+      Promise.all(jobs).then(function () {
+        if (destroyed) {
+          return;
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        if (THREE.SRGBColorSpace) {
+          texture.colorSpace = THREE.SRGBColorSpace;
+        }
+        texture.needsUpdate = true;
+        const planeW = Math.max(spanX * 1.45, 320);
+        const planeD = Math.max(spanZ * 1.45, 320);
+        const geom = new THREE.PlaneGeometry(planeW, planeD);
+        geom.rotateX(-Math.PI / 2);
+        const mesh = new THREE.Mesh(
+          geom,
+          new THREE.MeshBasicMaterial({
+            map: texture,
+            toneMapped: false
+          })
+        );
+        mesh.position.set(centerLocalX, nextBounds.minY - 0.8, centerLocalZ);
+        terrainGroup.add(mesh);
+        render();
+      });
+    }
+
     function lineColorForType(type) {
       if (type === "survey") {
         return COLORS.survey;
@@ -377,7 +506,14 @@
           if (!sample) {
             return;
           }
-          const key = sample.x.toFixed(2) + ":" + sample.z.toFixed(2) + ":" + idx;
+          const key =
+            sample.x.toFixed(2) +
+            ":" +
+            sample.z.toFixed(2) +
+            ":" +
+            sample.flightZ.toFixed(1) +
+            ":" +
+            idx;
           if (added.indexOf(key) !== -1) {
             return;
           }
@@ -414,7 +550,7 @@
         const step = Math.max(2, Math.round(dense.length / 9));
         for (let i = 0; i < dense.length; i += step) {
           const sample = dense[i];
-          if (!sample.available) {
+          if (!sample) {
             continue;
           }
           const geom = new THREE.BufferGeometry().setFromPoints([
@@ -442,6 +578,7 @@
       );
       const nextBounds = buildBounds(preview);
       addGrid(nextBounds);
+      addMapBasemap(preview, nextBounds, drawOptions);
       (preview.segments || []).forEach(function (segment) {
         if (drawOptions.showTerrain) {
           addTerrainRibbon(segment);

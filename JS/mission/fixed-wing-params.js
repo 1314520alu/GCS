@@ -76,9 +76,13 @@
     return fields;
   }
 
+  function round6(n) {
+    return Math.round(Number(n) * 1e6) / 1e6;
+  }
+
   function planeCameraTriggerFields(triggerDistanceMeters, triggerOnce) {
     return {
-      param1: Math.max(0.5, Number(triggerDistanceMeters) || 0),
+      param1: round6(Math.max(0.5, Number(triggerDistanceMeters) || 0)),
       param2: 0,
       param3: triggerOnce === false ? 0 : FW_CAMERA_TRIGGER_ONCE,
       param4: 0
