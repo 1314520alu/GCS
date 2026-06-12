@@ -42,5 +42,8 @@ map-tiles/
 # Local-only archived resources
 _tmp_resources/
 
+# Large local downloads / scratch (Cesium zip etc.)
+tmp/*.zip
+
 # Local browser config / secrets
 local/
