@@ -106,16 +106,24 @@
       }
 
       const cmd = Number(parts[3]);
+      const frame = Number(parts[2]) || MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT;
+      const current = Number(parts[1]) || 0;
       const isCameraCmd =
         cmd === MM.MAV_CMD.DO_SET_CAM_TRIGG_DIST ||
         cmd === MM.MAV_CMD.IMAGE_START_CAPTURE ||
         cmd === MM.MAV_CMD.IMAGE_STOP_CAPTURE;
+      const isFileHome =
+        waypoints.length === 0 &&
+        current === 1 &&
+        cmd === MM.MAV_CMD.NAV_WAYPOINT &&
+        (frame === 0 || frame === 3);
 
       waypoints.push(
         MM.createWaypoint({
           seq: waypoints.length,
-          frame: Number(parts[2]) || MM.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+          frame: frame,
           command: cmd,
+          isHome: isFileHome,
           param1: Number(parts[4]) || 0,
           param2: Number(parts[5]) || 0,
           param3: Number(parts[6]) || 0,
@@ -123,11 +131,13 @@
           lat: Number(parts[8]) || 0,
           lng: Number(parts[9]) || 0,
           alt: Number(parts[10]) || 0,
-          label: isCameraCmd
-            ? Number(parts[4]) > 0
-              ? "开始拍照"
-              : "停止拍照"
-            : MM.getCommandLabel(cmd),
+          label: isFileHome
+            ? "Home"
+            : isCameraCmd
+              ? Number(parts[4]) > 0
+                ? "开始拍照"
+                : "停止拍照"
+              : MM.getCommandLabel(cmd),
           source: isCameraCmd ? "camera" : "file",
           mapVisible: !isCameraCmd
         })

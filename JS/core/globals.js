@@ -48,6 +48,7 @@ window.lon = window.DEFAULT_MAP_LON;
 window.airspeed = 0;
 window.groundspeed = 0;
 window.altitude = 0;
+window.relative_alt_m = 0;
 window.climb_rate = 0;
 
 window.battery_voltage = 0;

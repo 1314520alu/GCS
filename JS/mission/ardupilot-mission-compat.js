@@ -17,18 +17,42 @@
   const MAV_FRAME_GLOBAL_TERRAIN_ALT = MM.MAV_FRAME_GLOBAL_TERRAIN_ALT;
   const MAV_FRAME_MISSION = MM.MAV_FRAME_MISSION;
 
+  /** 从 MP 文件导入时缓存 Home 行（编辑器内不保留 seq0） */
+  let missionFileHomeCache = null;
+
+  function setMissionFileHomeFromRow(homeRow) {
+    if (!homeRow) {
+      missionFileHomeCache = null;
+      return;
+    }
+    missionFileHomeCache = {
+      lat: Number(homeRow.lat),
+      lng: Number(homeRow.lng),
+      alt: Number(homeRow.alt) || 0,
+      frame: homeRow.frame != null ? homeRow.frame : MAV_FRAME_GLOBAL,
+      source: "file"
+    };
+  }
+
+  function getMissionFileHome() {
+    return missionFileHomeCache;
+  }
+
+  function clearMissionFileHome() {
+    missionFileHomeCache = null;
+  }
+
   function isHomeRow(wp, index) {
     if (!wp) {
       return false;
     }
+    if (wp.isHome === true) {
+      return true;
+    }
     if (wp.source === "home" || wp.label === "Home" || wp.label === "HOME") {
       return true;
     }
-    return (
-      index === 0 &&
-      wp.command === CMD.NAV_WAYPOINT &&
-      (wp.frame === MAV_FRAME_GLOBAL || wp.frame === 3)
-    );
+    return false;
   }
 
   function findFirstTakeoffWaypoint(waypoints) {
@@ -46,19 +70,56 @@
   }
 
   function homeFromContext(waypoints) {
+    const cached = getMissionFileHome();
+    if (cached && Number.isFinite(cached.lat) && Number.isFinite(cached.lng)) {
+      return MM.createWaypoint({
+        command: CMD.NAV_WAYPOINT,
+        frame: cached.frame != null ? cached.frame : MAV_FRAME_GLOBAL,
+        lat: cached.lat,
+        lng: cached.lng,
+        alt: cached.alt,
+        param1: 0,
+        param2: 0,
+        param3: 0,
+        param4: 0,
+        label: "Home",
+        source: "home",
+        isHome: true,
+        mapVisible: false
+      });
+    }
     const first = waypoints && waypoints[0];
     const takeoff = findFirstTakeoffWaypoint(waypoints);
+    const anchor =
+      first &&
+      first.command === CMD.NAV_WAYPOINT &&
+      (first.frame === MAV_FRAME_GLOBAL || first.frame === 3)
+        ? first
+        : first;
     let lat;
     let lng;
     let alt = 30;
     if (
+      anchor &&
+      Number.isFinite(anchor.lat) &&
+      Number.isFinite(anchor.lng) &&
+      anchor.command === CMD.NAV_WAYPOINT &&
+      anchor.frame === MAV_FRAME_GLOBAL
+    ) {
+      lat = anchor.lat;
+      lng = anchor.lng;
+      alt = Number(anchor.alt) || alt;
+    } else if (
       takeoff &&
       Number.isFinite(takeoff.lat) &&
       Number.isFinite(takeoff.lng)
     ) {
       lat = takeoff.lat;
       lng = takeoff.lng;
-      alt = Number(takeoff.alt) || alt;
+      if (MM && MM.getFlightPlanHomeLatLng) {
+        const h = MM.getFlightPlanHomeLatLng();
+        alt = Number(h && h.alt) || alt;
+      }
     } else if (MM && MM.getFlightPlanHomeLatLng) {
       const h = MM.getFlightPlanHomeLatLng();
       lat = h.lat;
@@ -84,6 +145,7 @@
       param4: 0,
       label: "Home",
       source: "home",
+      isHome: true,
       mapVisible: false
     });
   }
@@ -106,6 +168,7 @@
     if (!list.length || !isHomeRow(list[0], 0)) {
       return list;
     }
+    setMissionFileHomeFromRow(list[0]);
     return MM.renumberWaypoints(list.slice(1));
   }
 
@@ -202,6 +265,9 @@
     isHomeRow: isHomeRow,
     expandWithHomeRow: expandWithHomeRow,
     stripHomeRowForEditor: stripHomeRowForEditor,
+    getMissionFileHome: getMissionFileHome,
+    clearMissionFileHome: clearMissionFileHome,
+    setMissionFileHomeFromRow: setMissionFileHomeFromRow,
     normalizeWaypointsForMissionPlannerExport: normalizeWaypointsForMissionPlannerExport,
     normalizeFrameForMissionPlannerExport: normalizeFrameForMissionPlannerExport,
     normalizeWaypointFromMissionPlannerImport: normalizeWaypointFromMissionPlannerImport,

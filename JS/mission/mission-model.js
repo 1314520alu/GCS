@@ -321,13 +321,55 @@
     );
   }
 
+  function resolveVehicleHomeAltitudeMsl() {
+    const gpsRawAlt =
+      typeof window.getGpsTelemetryAltitudeMsl === "function"
+        ? window.getGpsTelemetryAltitudeMsl()
+        : null;
+    if (gpsRawAlt != null && Number.isFinite(Number(gpsRawAlt))) {
+      return Number(gpsRawAlt);
+    }
+
+    const terrainMsl = Number(window._gcsVehicleHomeTerrainMsl);
+    const gpsAlt = Number(window.altitude);
+    const relAlt = Number(window.relative_alt_m);
+    const home = window.homeState;
+
+    if (
+      home &&
+      home.valid &&
+      Number.isFinite(Number(home.alt)) &&
+      Number(home.alt) > 50
+    ) {
+      return Number(home.alt);
+    }
+
+    if (Number.isFinite(terrainMsl)) {
+      if (Number.isFinite(gpsAlt) && gpsAlt >= terrainMsl - 30) {
+        return gpsAlt;
+      }
+      if (Number.isFinite(relAlt)) {
+        return terrainMsl + relAlt;
+      }
+      return terrainMsl;
+    }
+
+    if (Number.isFinite(gpsAlt) && gpsAlt > 50) {
+      return gpsAlt;
+    }
+    if (Number.isFinite(gpsAlt)) {
+      return gpsAlt;
+    }
+    return 30;
+  }
+
   /** 飞行计划 Home / 默认中心：已连接且有定位用当前位置，否则用地图默认中点 */
   function getFlightPlanHomeLatLng() {
     if (hasFlightPlanVehiclePosition()) {
       return {
         lat: window.lat,
         lng: window.lon,
-        alt: Number(window.altitude) || 30,
+        alt: resolveVehicleHomeAltitudeMsl(),
         source: "vehicle"
       };
     }
@@ -376,6 +418,7 @@
     isVehicleConnected: isVehicleConnected,
     hasFlightPlanVehiclePosition: hasFlightPlanVehiclePosition,
     getFlightPlanHomeLatLng: getFlightPlanHomeLatLng,
+    resolveVehicleHomeAltitudeMsl: resolveVehicleHomeAltitudeMsl,
     getTakeoffLatLng: getTakeoffLatLng
   };
 })();

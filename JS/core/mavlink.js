@@ -151,6 +151,46 @@ function applyGpsAltitudeM(inst, altMm, payload, dv) {
   inst.altM = prevAlt;
 }
 
+function getGpsTelemetryAltitudeMsl() {
+  const root = window.gpsTelemetry;
+  if (!root || !Array.isArray(root.instances)) {
+    return null;
+  }
+  const instances = root.instances;
+  const primaryIdx =
+    root.rtk && Number.isFinite(Number(root.rtk.boundInstance))
+      ? Number(root.rtk.boundInstance)
+      : 0;
+  const order = [primaryIdx, 0, 1].filter(function (idx, i, arr) {
+    return arr.indexOf(idx) === i && idx >= 0 && idx < instances.length;
+  });
+  for (let i = 0; i < order.length; i += 1) {
+    const inst = instances[order[i]];
+    if (!inst) {
+      continue;
+    }
+    const fix = Number(inst.fixType) || 0;
+    const altM = Number(inst.altM);
+    if (fix >= 3 && Number.isFinite(altM) && Math.abs(altM) > 1) {
+      return altM;
+    }
+  }
+  for (let j = 0; j < instances.length; j += 1) {
+    const inst = instances[j];
+    if (!inst) {
+      continue;
+    }
+    const fix = Number(inst.fixType) || 0;
+    const altM = Number(inst.altM);
+    if (fix >= 2 && Number.isFinite(altM) && altM > 50) {
+      return altM;
+    }
+  }
+  return null;
+}
+
+window.getGpsTelemetryAltitudeMsl = getGpsTelemetryAltitudeMsl;
+
 function gpsHasValidCoords(lat, lon) {
   return Math.abs(lat) > 1e-6 || Math.abs(lon) > 1e-6;
 }
@@ -653,6 +693,17 @@ if(id === 0){ // HEARTBEAT — 本项目约定线序（与 MAVLink common.xml �
     window.lat = dv.getInt32(4, true) / 1e7;
     window.lon = dv.getInt32(8, true) / 1e7;
     window.altitude = dv.getInt32(16, true) / 1000;
+    if (payload.length >= 24) {
+      window.relative_alt_m = dv.getInt32(20, true) / 1000;
+    }
+    const gpsAltM = getGpsTelemetryAltitudeMsl();
+    if (
+      gpsAltM != null &&
+      Number.isFinite(gpsAltM) &&
+      (!Number.isFinite(window.altitude) || Math.abs(window.altitude) < 1)
+    ) {
+      window.altitude = gpsAltM;
+    }
     if (payload.length >= 28) {
       const cogCdeg = dv.getUint16(26, true);
       const nav = getNavGuidanceState();

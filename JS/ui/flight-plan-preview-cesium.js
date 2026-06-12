@@ -170,7 +170,7 @@
             return;
           }
           const key =
-            Math.round((sample.lat || 0) * 1e6) + ":" + Math.round((sample.lng || 0) * 1e6) + ":" + idx;
+            Math.round((sample.lat || 0) * 1e6) + ":" + Math.round((sample.lng || 0) * 1e6);
           if (seen.has(key)) {
             return;
           }

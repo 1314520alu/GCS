@@ -1555,18 +1555,230 @@
 
 .fp-terrain-sparkline-flight {
   fill: none;
-  stroke: #4fc3f7;
+  stroke: #29b6f6;
   stroke-width: 1.5;
+}
+
+.fp-terrain-sparkline-flight--feasible {
+  stroke: #29b6f6;
+  stroke-width: 2.2;
 }
 
 .fp-terrain-sparkline-flight--error {
   stroke: #ff6b6b;
-  stroke-width: 2;
+  stroke-width: 2.5;
+}
+
+.fp-terrain-sparkline-flight--ideal {
+  stroke: #ffb74d;
+  stroke-dasharray: 6 4;
+  stroke-width: 1.6;
+  opacity: 0.95;
 }
 
 .fp-terrain-sparkline--wide {
   max-width: 100%;
   height: auto;
+}
+
+.fp-terrain-sparkline--modal {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.fp-block-sparkline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding-left: 4px;
+}
+
+.fp-block-sparkline-row .fp-block-item-sparkline {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+  padding-left: 0;
+}
+
+.fp-btn--icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  line-height: 1;
+  font-size: 14px;
+}
+
+.fp-profile-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1350;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(3, 8, 13, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.fp-profile-modal-shell {
+  width: min(980px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(96, 124, 151, 0.44);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(13, 19, 26, 0.98), rgba(9, 15, 22, 0.98));
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.42);
+  overflow: hidden;
+}
+
+.fp-profile-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid rgba(59, 79, 98, 0.64);
+}
+
+.fp-profile-modal-title {
+  margin: 0;
+  color: #f0f6fc;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.fp-profile-modal-subtitle {
+  margin: 6px 0 0;
+  color: #8fb0c9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fp-profile-modal-close {
+  appearance: none;
+  border: 1px solid rgba(130, 152, 176, 0.32);
+  border-radius: 999px;
+  background: rgba(20, 29, 39, 0.82);
+  color: #dce6f3;
+  width: 34px;
+  height: 34px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fp-profile-modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(43, 57, 73, 0.74);
+  background: rgba(12, 18, 24, 0.72);
+}
+
+.fp-profile-modal-hint {
+  color: #8fb0c9;
+  font-size: 12px;
+}
+
+.fp-profile-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fp-profile-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b8cde0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fp-profile-legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+
+.fp-profile-legend-item--ideal::before {
+  border-top-color: #ffb74d;
+  border-top-style: dashed;
+}
+
+.fp-profile-legend-item--feasible::before {
+  border-top-color: #29b6f6;
+  border-top-style: solid;
+  border-top-width: 2.5px;
+}
+
+.fp-profile-probe-line {
+  stroke: rgba(255, 235, 59, 0.85);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.fp-profile-probe-handle {
+  fill: rgba(255, 235, 59, 0.35);
+  stroke: #ffeb3b;
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.fp-profile-probe-dot {
+  fill: #ffeb3b;
+  stroke: rgba(8, 13, 19, 0.65);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.fp-profile-probe-dot--ground {
+  fill: #81c784;
+}
+
+.fp-profile-probe-label {
+  fill: #ffeb3b;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fp-profile-probe-label--muted {
+  fill: rgba(255, 235, 59, 0.78);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.fp-profile-modal-stage {
+  height: min(260px, 42vh);
+  padding: 12px 14px 16px;
+  background: rgba(8, 13, 19, 0.92);
+  cursor: grab;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.fp-profile-modal-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.fp-profile-modal-stage.is-probe-dragging {
+  cursor: ew-resize;
+}
+
+.fp-profile-modal-stage svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .fp-terrain-prefetch-bar-wrap {

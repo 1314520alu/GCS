@@ -434,53 +434,119 @@
     return -1;
   }
 
-  function syncTakeoffFromVehicle(waypoints, connected) {
+  function findHomeAnchorWaypointIndex(waypoints) {
+    const CMD = MM.MAV_CMD;
+    const AP = window.ArdupilotMissionCompat;
+    const list = waypoints || [];
+    const takeoffIdx = findFirstTakeoffIndex(list);
+    const searchEnd = takeoffIdx >= 0 ? takeoffIdx : list.length;
+    for (let i = 0; i < searchEnd; i += 1) {
+      const wp = list[i];
+      if (!wp || wp.source === "camera") {
+        continue;
+      }
+      if (
+        wp.command === CMD.NAV_WAYPOINT &&
+        (wp.frame === 0 || (AP && wp.frame === AP.MAV_FRAME_GLOBAL))
+      ) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function unlockSyncedHomeAnchors(list, indexes) {
+    let changed = false;
+    const next = list.slice();
+    indexes.forEach(function (idx) {
+      if (idx < 0 || !next[idx] || !next[idx].locked) {
+        return;
+      }
+      next[idx] = Object.assign({}, next[idx], { locked: false });
+      changed = true;
+    });
+    return changed ? next : list;
+  }
+
+  function syncMissionHomeAnchorsFromVehicle(waypoints, connected) {
     const list = waypoints || [];
     if (!list.length) {
       return list;
     }
 
+    const anchorIdx = findHomeAnchorWaypointIndex(list);
     const takeoffIdx = findFirstTakeoffIndex(list);
-    if (takeoffIdx < 0) {
-      return list;
-    }
+    const syncIndexes = [anchorIdx, takeoffIdx].filter(function (idx) {
+      return idx >= 0;
+    });
 
     if (!connected) {
-      const wp = list[takeoffIdx];
-      if (!wp.locked) {
-        return list;
-      }
-      const next = list.slice();
-      next[takeoffIdx] = Object.assign({}, wp, { locked: false });
-      return next;
+      return unlockSyncedHomeAnchors(list, syncIndexes);
     }
 
     if (!MM.hasFlightPlanVehiclePosition || !MM.hasFlightPlanVehiclePosition()) {
-      const wp = list[takeoffIdx];
-      if (!wp.locked) {
-        return list;
+      return unlockSyncedHomeAnchors(list, syncIndexes);
+    }
+
+    const origin = MM.getFlightPlanHomeLatLng();
+    const AP = window.ArdupilotMissionCompat;
+    if (AP && typeof AP.setMissionFileHomeFromRow === "function") {
+      AP.setMissionFileHomeFromRow({
+        lat: origin.lat,
+        lng: origin.lng,
+        alt: origin.alt,
+        frame: AP.MAV_FRAME_GLOBAL != null ? AP.MAV_FRAME_GLOBAL : 0
+      });
+    }
+
+    let next = null;
+
+    function touchIndex(idx, patch) {
+      if (idx < 0 || !list[idx]) {
+        return;
       }
-      const next = list.slice();
-      next[takeoffIdx] = Object.assign({}, wp, { locked: false });
-      return next;
+      if (!next) {
+        next = list.slice();
+      }
+      next[idx] = Object.assign({}, list[idx], patch, { locked: true });
     }
 
-    const origin = MM.getTakeoffLatLng();
-    const wp = list[takeoffIdx];
-    if (
-      wp.locked &&
-      horizontalDistanceM(wp, origin) < 1
-    ) {
-      return list;
+    if (anchorIdx >= 0) {
+      const wp = list[anchorIdx];
+      const targetAlt = Number(origin.alt);
+      const altOk =
+        !Number.isFinite(targetAlt) ||
+        Math.abs((Number(wp.alt) || 0) - targetAlt) < 0.5;
+      if (
+        !(
+          wp.locked &&
+          horizontalDistanceM(wp, origin) < 1 &&
+          altOk
+        )
+      ) {
+        touchIndex(anchorIdx, {
+          lat: origin.lat,
+          lng: origin.lng,
+          alt: Number.isFinite(targetAlt) ? targetAlt : wp.alt
+        });
+      }
     }
 
-    const next = list.slice();
-    next[takeoffIdx] = Object.assign({}, wp, {
-      lat: origin.lat,
-      lng: origin.lng,
-      locked: true
-    });
-    return next;
+    if (takeoffIdx >= 0) {
+      const wp = list[takeoffIdx];
+      if (!(wp.locked && horizontalDistanceM(wp, origin) < 1)) {
+        touchIndex(takeoffIdx, {
+          lat: origin.lat,
+          lng: origin.lng
+        });
+      }
+    }
+
+    return next || list;
+  }
+
+  function syncTakeoffFromVehicle(waypoints, connected) {
+    return syncMissionHomeAnchorsFromVehicle(waypoints, connected);
   }
 
   window.VehicleTemplates = {
@@ -500,6 +566,8 @@
     gradeSegmentColor: gradeSegmentColor,
     horizontalDistanceM: horizontalDistanceM,
     offsetLatLngMeters: offsetLatLngMeters,
+    findHomeAnchorWaypointIndex: findHomeAnchorWaypointIndex,
+    syncMissionHomeAnchorsFromVehicle: syncMissionHomeAnchorsFromVehicle,
     syncTakeoffFromVehicle: syncTakeoffFromVehicle
   };
 })();

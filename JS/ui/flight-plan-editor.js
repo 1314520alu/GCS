@@ -1211,17 +1211,19 @@
     }
   }
 
-  function buildHomePreviewTableRow() {
+  function buildHomePreviewTableRow(missionWaypoints) {
     const MM = window.MissionModel;
-    const home =
-      MM && MM.getFlightPlanHomeLatLng
-        ? MM.getFlightPlanHomeLatLng()
-        : {
-            lat: window.DEFAULT_MAP_LAT || 29.59256,
-            lng: window.DEFAULT_MAP_LON || 106.22742,
-            alt: 30,
-            source: "default"
-          };
+    const AP = window.ArdupilotMissionCompat;
+    const home = resolvePreviewHome(
+      missionWaypoints,
+      MM && MM.getFlightPlanHomeLatLng ? MM.getFlightPlanHomeLatLng() : null
+    );
+    const homeFrame =
+      home.frame != null
+        ? home.frame
+        : AP && AP.MAV_FRAME_GLOBAL != null
+          ? AP.MAV_FRAME_GLOBAL
+          : 0;
     return {
       key: "home-0",
       seq: 0,
@@ -1229,6 +1231,8 @@
       lng: home.lng,
       lat: home.lat,
       alt: home.alt,
+      frame: homeFrame,
+      frameLabel: String(homeFrame),
       preview: false,
       isSurvey: false,
       isHome: true,
@@ -2950,26 +2954,408 @@
     return { label: "参数未就绪", tone: "muted" };
   }
 
-  function createTerrainProfileSparklineElement(e, profile, settings, platform) {
+  function effectiveProfileSparklineAgl(point, fallbackAgl) {
+    const override = point && Number(point.aglOverride);
+    return Number.isFinite(override) ? override : fallbackAgl;
+  }
+
+  function profileCumulativeDistancesM(points) {
+    const dist = [0];
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1];
+      const b = points[i];
+      dist.push(
+        dist[i - 1] +
+          distanceMetersBetween(
+            { lat: Number(a.lat), lng: Number(a.lng) },
+            { lat: Number(b.lat), lng: Number(b.lng) }
+          )
+      );
+    }
+    return dist;
+  }
+
+  function profileAltitudesDiffer(idealAbs, feasibleAbs, toleranceM) {
+    const limit = Number.isFinite(Number(toleranceM)) ? Number(toleranceM) : 0.5;
+    if (!idealAbs || !feasibleAbs || idealAbs.length !== feasibleAbs.length) {
+      return false;
+    }
+    for (let i = 0; i < idealAbs.length; i += 1) {
+      if (Math.abs(Number(idealAbs[i]) - Number(feasibleAbs[i])) > limit) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function resolveProfileFlightAltitudes(profile, settings, platform) {
     const pts = (profile || []).filter(function (p) {
-      return p.elevation != null && Number.isFinite(p.elevation);
+      return p && p.elevation != null && Number.isFinite(Number(p.elevation));
     });
-    if (pts.length < 2 || !e) {
+    if (!pts.length) {
       return null;
     }
-    const agl = Number(settings && settings.surveyAltitude) || 300;
+    const fallbackAgl = Number(settings && settings.surveyAltitude) || 300;
     const ground = pts.map(function (p) {
-      return p.elevation;
+      return Number(p.elevation);
     });
-    const flight = pts.map(function (p) {
-      return p.elevation + agl;
+    const idealAbs = ground.map(function (elev) {
+      return elev + fallbackAgl;
     });
+
+    const FWP = window.FixedWingParams;
+    const isFw =
+      FWP && typeof FWP.isFixedWingPlatform === "function" && FWP.isFixedWingPlatform(platform);
+    if (!isFw) {
+      return {
+        points: pts,
+        ground: ground,
+        idealAbs: idealAbs,
+        feasibleAbs: idealAbs.slice(),
+        feasibleSource: "ideal",
+        showIdealLine: false
+      };
+    }
+
+    const hasTargetAbs = pts.every(function (p) {
+      return p.targetAbsAlt != null && Number.isFinite(Number(p.targetAbsAlt));
+    });
+    if (hasTargetAbs) {
+      const feasibleAbs = pts.map(function (p) {
+        return Number(p.targetAbsAlt);
+      });
+      return {
+        points: pts,
+        ground: ground,
+        idealAbs: idealAbs,
+        feasibleAbs: feasibleAbs,
+        feasibleSource: "profile",
+        showIdealLine: profileAltitudesDiffer(idealAbs, feasibleAbs)
+      };
+    }
+
+    const hasAglOverride = pts.every(function (p) {
+      return p.aglOverride != null && Number.isFinite(Number(p.aglOverride));
+    });
+    if (hasAglOverride) {
+      const feasibleAbs = pts.map(function (p, index) {
+        return ground[index] + Number(p.aglOverride);
+      });
+      return {
+        points: pts,
+        ground: ground,
+        idealAbs: idealAbs,
+        feasibleAbs: feasibleAbs,
+        feasibleSource: "profile",
+        showIdealLine: profileAltitudesDiffer(idealAbs, feasibleAbs)
+      };
+    }
+
+    const solver = window.TerrainClimbSolver;
+    if (!solver || settings.terrainClimbSmoothing === false || !solver.buildFeasibleEnvelope) {
+      return {
+        points: pts,
+        ground: ground,
+        idealAbs: idealAbs,
+        feasibleAbs: idealAbs.slice(),
+        feasibleSource: "ideal",
+        showIdealLine: false
+      };
+    }
+
+    const dist = profileCumulativeDistancesM(pts);
+    const opts = solver.resolveOpts ? solver.resolveOpts(settings) : null;
+    if (!opts) {
+      return {
+        points: pts,
+        ground: ground,
+        idealAbs: idealAbs,
+        feasibleAbs: idealAbs.slice(),
+        feasibleSource: "ideal",
+        showIdealLine: false
+      };
+    }
+    const env = solver.buildFeasibleEnvelope(ground, dist, opts);
+    const feasibleAbs = env && env.abs ? env.abs : idealAbs.slice();
+    return {
+      points: pts,
+      ground: ground,
+      idealAbs: idealAbs,
+      feasibleAbs: feasibleAbs,
+      feasibleSource: "solver",
+      showIdealLine: profileAltitudesDiffer(idealAbs, feasibleAbs)
+    };
+  }
+
+  function interpolateProfileValuesAtDist(targetDist, dist, values) {
+    const n = dist.length;
+    if (!n) {
+      return null;
+    }
+    if (targetDist <= dist[0]) {
+      return values[0];
+    }
+    if (targetDist >= dist[n - 1]) {
+      return values[n - 1];
+    }
+    let lo = 0;
+    let hi = n - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (dist[mid] <= targetDist) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    const span = dist[hi] - dist[lo] || 1e-9;
+    const t = (targetDist - dist[lo]) / span;
+    return values[lo] + (values[hi] - values[lo]) * t;
+  }
+
+  function smoothFeasibleForDisplay(feasibleAbs, ground, dist, opts) {
+    const stepM = Number(opts && opts.stepM) || 12;
+    const totalDist = dist.length ? dist[dist.length - 1] : 0;
+    if (totalDist <= 0 || feasibleAbs.length < 2) {
+      return {
+        displayAbs: feasibleAbs.slice(),
+        displayGround: ground.slice(),
+        displayDist: dist.slice()
+      };
+    }
+    const denseDist = [0];
+    const denseFeas = [feasibleAbs[0]];
+    const denseGround = [ground[0]];
+    let cursor = stepM;
+    while (cursor < totalDist) {
+      denseDist.push(cursor);
+      denseFeas.push(interpolateProfileValuesAtDist(cursor, dist, feasibleAbs));
+      denseGround.push(interpolateProfileValuesAtDist(cursor, dist, ground));
+      cursor += stepM;
+    }
+    if (denseDist[denseDist.length - 1] !== totalDist) {
+      denseDist.push(totalDist);
+      denseFeas.push(feasibleAbs[feasibleAbs.length - 1]);
+      denseGround.push(ground[ground.length - 1]);
+    }
+    const smoothed = denseFeas.slice();
+    for (let i = 1; i < denseFeas.length - 1; i += 1) {
+      smoothed[i] = (denseFeas[i - 1] + denseFeas[i] + denseFeas[i + 1]) / 3;
+    }
+    const displayAbs = smoothed.map(function (value, index) {
+      const floor = interpolateProfileValuesAtDist(denseDist[index], dist, feasibleAbs);
+      return Math.max(value, floor);
+    });
+    return {
+      displayAbs: displayAbs,
+      displayGround: denseGround,
+      displayDist: denseDist
+    };
+  }
+
+  function buildSmoothSparklinePath(displayAbs, displayDist, totalDist, pad, width, yAt) {
+    if (!displayAbs || displayAbs.length < 2) {
+      return "";
+    }
+    function xAtDist(distM) {
+      const usable = Math.max(1, width - pad * 2);
+      const fraction = totalDist > 0 ? distM / totalDist : 0;
+      return pad + fraction * usable;
+    }
+    const points = displayAbs.map(function (value, index) {
+      return {
+        x: xAtDist(displayDist[index]),
+        y: yAt(value)
+      };
+    });
+    if (points.length === 2) {
+      return (
+        "M" +
+        points[0].x.toFixed(1) +
+        " " +
+        points[0].y.toFixed(1) +
+        " L" +
+        points[1].x.toFixed(1) +
+        " " +
+        points[1].y.toFixed(1)
+      );
+    }
+    let path = "M" + points[0].x.toFixed(1) + " " + points[0].y.toFixed(1);
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const p0 = points[i === 0 ? i : i - 1];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      path +=
+        " C" +
+        cp1x.toFixed(1) +
+        " " +
+        cp1y.toFixed(1) +
+        " " +
+        cp2x.toFixed(1) +
+        " " +
+        cp2y.toFixed(1) +
+        " " +
+        p2.x.toFixed(1) +
+        " " +
+        p2.y.toFixed(1);
+    }
+    return path;
+  }
+
+  function interpolateProfileSeriesAt(t, series) {
+    const dist = series.dist || [];
+    const total = dist.length ? dist[dist.length - 1] : 0;
+    const clampedT = Math.max(0, Math.min(1, Number(t) || 0));
+    const targetDist = clampedT * total;
+    const ground = interpolateProfileValuesAtDist(targetDist, dist, series.ground);
+    const feasibleAbs = interpolateProfileValuesAtDist(targetDist, dist, series.feasibleAbs);
+    const idealAbs = interpolateProfileValuesAtDist(targetDist, dist, series.idealAbs);
+    return {
+      ground: ground,
+      feasibleAbs: feasibleAbs,
+      idealAbs: idealAbs,
+      agl: feasibleAbs - ground,
+      distM: targetDist,
+      t: clampedT
+    };
+  }
+
+  function clientToProfileProbeT(clientX, stageRect, viewBox, series) {
+    const vb = viewBox || { x: 0, w: series.width };
+    const pad = series.pad || 0;
+    const rx = stageRect.width > 0 ? (clientX - stageRect.left) / stageRect.width : 0.5;
+    const worldX = vb.x + rx * vb.w;
+    const usable = Math.max(1, series.width - pad * 2);
+    return Math.max(0, Math.min(1, (worldX - pad) / usable));
+  }
+
+  function profileProbeScreenX(probeT, series, viewBox, stageRect) {
+    const vb = viewBox || { x: 0, w: series.width };
+    const worldX = series.pad + probeT * (series.width - series.pad * 2);
+    const rx = vb.w > 0 ? (worldX - vb.x) / vb.w : probeT;
+    return stageRect.left + rx * stageRect.width;
+  }
+
+  function renderProfileProbeOverlay(e, series, probeT) {
+    if (!series || !e) {
+      return null;
+    }
+    const sample = interpolateProfileSeriesAt(probeT, series);
+    const range = Math.max(1, series.maxY - series.minY);
+    const x = series.pad + sample.t * (series.width - series.pad * 2);
+    function yAt(value) {
+      return series.pad + (1 - (value - series.minY) / range) * (series.height - series.pad * 2);
+    }
+    const yGround = yAt(sample.ground);
+    const yFlight = yAt(sample.feasibleAbs);
+    const flip = x > series.width * 0.72;
+    const labelX = flip ? x - 8 : x + 8;
+    const anchor = flip ? "end" : "start";
+    return e(
+      "g",
+      { className: "fp-profile-probe", key: "profile-probe" },
+      e("line", {
+        className: "fp-profile-probe-line",
+        x1: x,
+        y1: yGround,
+        x2: x,
+        y2: yFlight
+      }),
+      e("circle", {
+        className: "fp-profile-probe-dot fp-profile-probe-dot--ground",
+        cx: x,
+        cy: yGround,
+        r: 3
+      }),
+      e("circle", {
+        className: "fp-profile-probe-dot fp-profile-probe-dot--flight",
+        cx: x,
+        cy: yFlight,
+        r: 3.5
+      }),
+      e("rect", {
+        className: "fp-profile-probe-handle",
+        x: x - 12,
+        y: yFlight - 14,
+        width: 24,
+        height: 8,
+        rx: 2
+      }),
+      e(
+        "text",
+        {
+          className: "fp-profile-probe-label",
+          x: labelX,
+          y: yFlight - 18,
+          textAnchor: anchor
+        },
+        "高度 " + Math.round(sample.feasibleAbs) + " m"
+      ),
+      e(
+        "text",
+        {
+          className: "fp-profile-probe-label",
+          x: labelX,
+          y: yFlight - 5,
+          textAnchor: anchor
+        },
+        "AGL " + Math.round(sample.agl) + " m"
+      ),
+      e(
+        "text",
+        {
+          className: "fp-profile-probe-label fp-profile-probe-label--muted",
+          x: labelX,
+          y: yFlight + 8,
+          textAnchor: anchor
+        },
+        "地面 " + Math.round(sample.ground) + " m"
+      )
+    );
+  }
+
+  function buildSparklineFlightSegments(flightValues, xAt, yAt, errorSet, keyPrefix, segmentKind) {
+    const segments = [];
+    for (let i = 1; i < flightValues.length; i += 1) {
+      const segKey = i - 1 + "-" + i;
+      segments.push({
+        key: (keyPrefix || "fl-") + segKey,
+        kind: segmentKind || "feasible",
+        isError: segmentKind === "feasible" ? !!errorSet[segKey] : false,
+        d:
+          "M" +
+          xAt(i - 1).toFixed(1) +
+          " " +
+          yAt(flightValues[i - 1]).toFixed(1) +
+          " L" +
+          xAt(i).toFixed(1) +
+          " " +
+          yAt(flightValues[i]).toFixed(1)
+      });
+    }
+    return segments;
+  }
+
+  function buildTerrainProfileSparklinePaths(profile, settings, platform, layout) {
+    const altitudes = resolveProfileFlightAltitudes(profile, settings, platform);
+    if (!altitudes || altitudes.points.length < 2) {
+      return null;
+    }
+    const pts = altitudes.points;
+    const ground = altitudes.ground;
+    const idealAbs = altitudes.idealAbs;
+    const feasibleAbs = altitudes.feasibleAbs;
     const minY = Math.min.apply(null, ground);
-    const maxY = Math.max.apply(null, flight);
+    const maxY = Math.max.apply(null, idealAbs.concat(feasibleAbs));
     const range = Math.max(1, maxY - minY);
-    const width = 200;
-    const height = 48;
-    const pad = 2;
+    const width = Number(layout && layout.width) || 200;
+    const height = Number(layout && layout.height) || 48;
+    const pad = Number(layout && layout.pad) || 2;
     function xAt(index) {
       return pad + (index / (pts.length - 1)) * (width - pad * 2);
     }
@@ -2986,43 +3372,268 @@
       TPS && platform && typeof TPS.profileSegmentErrorSet === "function"
         ? TPS.profileSegmentErrorSet(profile, settings, platform)
         : {};
-    const flightSegments = [];
-    for (let i = 1; i < flight.length; i += 1) {
-      const segKey = i - 1 + "-" + i;
-      const isError = !!errorSet[segKey];
-      flightSegments.push(
+    const idealFlightSegments = altitudes.showIdealLine
+      ? buildSparklineFlightSegments(idealAbs, xAt, yAt, errorSet, "ideal-", "ideal")
+      : [];
+    const feasibleFlightSegments = buildSparklineFlightSegments(
+      feasibleAbs,
+      xAt,
+      yAt,
+      errorSet,
+      "feasible-",
+      "feasible"
+    );
+    const dist = profileCumulativeDistancesM(pts);
+    const totalDist = dist.length ? dist[dist.length - 1] : 0;
+    const smoothed = smoothFeasibleForDisplay(feasibleAbs, ground, dist, { stepM: 12 });
+    const feasibleFlightPath = buildSmoothSparklinePath(
+      smoothed.displayAbs,
+      smoothed.displayDist,
+      totalDist,
+      pad,
+      width,
+      yAt
+    );
+    const idealAgl = idealAbs.map(function (abs, index) {
+      return abs - ground[index];
+    });
+    const feasibleAgl = feasibleAbs.map(function (abs, index) {
+      return abs - ground[index];
+    });
+    return {
+      groundPath: groundPath,
+      groundCloseX: xAt(pts.length - 1).toFixed(1),
+      groundCloseY: yAt(minY).toFixed(1),
+      idealFlightSegments: idealFlightSegments,
+      feasibleFlightSegments: feasibleFlightSegments,
+      feasibleFlightPath: feasibleFlightPath,
+      flightSegments: feasibleFlightSegments,
+      showIdealLine: altitudes.showIdealLine,
+      contentWidth: width,
+      contentHeight: height,
+      series: {
+        dist: dist,
+        ground: ground,
+        feasibleAbs: feasibleAbs,
+        idealAbs: idealAbs,
+        minY: minY,
+        maxY: maxY,
+        pad: pad,
+        width: width,
+        height: height,
+        pointCount: pts.length
+      },
+      stats: {
+        terrainMin: minY,
+        terrainMax: Math.max.apply(null, ground),
+        aglMin: Math.min.apply(null, feasibleAgl),
+        aglMax: Math.max.apply(null, feasibleAgl),
+        idealAglMin: Math.min.apply(null, idealAgl),
+        idealAglMax: Math.max.apply(null, idealAgl),
+        feasibleAglMin: Math.min.apply(null, feasibleAgl),
+        feasibleAglMax: Math.max.apply(null, feasibleAgl),
+        feasibleSource: altitudes.feasibleSource,
+        pointCount: pts.length,
+        showIdealLine: altitudes.showIdealLine
+      }
+    };
+  }
+
+  function renderTerrainProfileSparkline(e, paths, options) {
+    if (!paths || !e) {
+      return null;
+    }
+    const opts = options || {};
+    const viewBox =
+      opts.viewBox || "0 0 " + paths.contentWidth + " " + paths.contentHeight;
+    const svgProps = {
+      className: opts.className || "fp-terrain-sparkline fp-terrain-sparkline--wide",
+      viewBox: viewBox,
+      width: opts.width != null ? opts.width : paths.contentWidth,
+      height: opts.height != null ? opts.height : paths.contentHeight,
+      role: "img",
+      "aria-label": opts.ariaLabel || "地形剖面预览"
+    };
+    if (opts.style) {
+      svgProps.style = opts.style;
+    }
+    if (opts.onPointerDown) {
+      svgProps.onPointerDown = opts.onPointerDown;
+    }
+    if (opts.onPointerMove) {
+      svgProps.onPointerMove = opts.onPointerMove;
+    }
+    if (opts.onPointerUp) {
+      svgProps.onPointerUp = opts.onPointerUp;
+    }
+    if (opts.onWheel) {
+      svgProps.onWheel = opts.onWheel;
+    }
+    const idealSegments = paths.showIdealLine ? paths.idealFlightSegments || [] : [];
+    const feasibleSegments = (paths.feasibleFlightSegments || paths.flightSegments || []).filter(
+      function (segment) {
+        return segment.isError;
+      }
+    );
+    const children = [
+      e("path", {
+        key: "ground",
+        className: "fp-terrain-sparkline-ground",
+        d:
+          paths.groundPath +
+          " L" +
+          paths.groundCloseX +
+          " " +
+          paths.groundCloseY +
+          " Z"
+      })
+    ];
+    idealSegments.forEach(function (segment) {
+      children.push(
         e("path", {
-          key: "fl-" + segKey,
-          className: isError
-            ? "fp-terrain-sparkline-flight fp-terrain-sparkline-flight--error"
-            : "fp-terrain-sparkline-flight",
-          d:
-            "M" +
-            xAt(i - 1).toFixed(1) +
-            " " +
-            yAt(flight[i - 1]).toFixed(1) +
-            " L" +
-            xAt(i).toFixed(1) +
-            " " +
-            yAt(flight[i]).toFixed(1)
+          key: segment.key,
+          className: "fp-terrain-sparkline-flight fp-terrain-sparkline-flight--ideal",
+          d: segment.d
+        })
+      );
+    });
+    if (paths.feasibleFlightPath) {
+      children.push(
+        e("path", {
+          key: "feasible-smooth",
+          className: "fp-terrain-sparkline-flight fp-terrain-sparkline-flight--feasible",
+          d: paths.feasibleFlightPath
         })
       );
     }
+    feasibleSegments.forEach(function (segment) {
+      children.push(
+        e("path", {
+          key: segment.key,
+          className: "fp-terrain-sparkline-flight fp-terrain-sparkline-flight--error",
+          d: segment.d
+        })
+      );
+    });
+    if (opts.probe && paths.series && opts.probeT != null) {
+      const probeOverlay = renderProfileProbeOverlay(e, paths.series, opts.probeT);
+      if (probeOverlay) {
+        children.push(probeOverlay);
+      }
+    }
+    return e("svg", svgProps, children);
+  }
+
+  function createTerrainProfileSparklineElement(e, profile, settings, platform, layout) {
+    const paths = buildTerrainProfileSparklinePaths(
+      profile,
+      settings,
+      platform,
+      layout || { width: 200, height: 48, pad: 2 }
+    );
+    if (!paths) {
+      return null;
+    }
+    return renderTerrainProfileSparkline(e, paths, {
+      width: 200,
+      height: 48
+    });
+  }
+
+  function renderTerrainProfileSparklineRow(e, options) {
+    const profile = options && options.profile;
+    const settings = options && options.settings;
+    const platform = options && options.platform;
+    const title = (options && options.title) || "地形剖面";
+    const onExpand = options && options.onExpand;
+    const sparkline = createTerrainProfileSparklineElement(e, profile, settings, platform);
+    if (!sparkline) {
+      return null;
+    }
     return e(
-      "svg",
+      "div",
+      { className: "fp-block-sparkline-row" },
+      e("div", { className: "fp-block-item-sparkline" }, sparkline),
+      e(
+        "button",
+        {
+          type: "button",
+          className: "fp-btn fp-btn--tiny fp-btn--icon",
+          "aria-label": "放大地形剖面",
+          title: "放大地形剖面",
+          onClick: function () {
+            if (typeof onExpand === "function") {
+              onExpand({
+                title: title,
+                profile: profile,
+                settings: settings
+              });
+            }
+          }
+        },
+        "\u2922"
+      )
+    );
+  }
+
+  function clampProfileViewBox(viewBox, contentWidth, contentHeight) {
+    const vb = viewBox || { x: 0, y: 0, w: contentWidth, h: contentHeight };
+    const w = Math.max(contentWidth * 0.06, Math.min(contentWidth, vb.w));
+    const h = Math.max(contentHeight * 0.06, Math.min(contentHeight, vb.h));
+    const x = Math.max(0, Math.min(contentWidth - w, vb.x));
+    const y = Math.max(0, Math.min(contentHeight - h, vb.y));
+    return { x: x, y: y, w: w, h: h };
+  }
+
+  function formatProfileViewBox(viewBox) {
+    if (!viewBox) {
+      return "";
+    }
+    return (
+      viewBox.x.toFixed(2) +
+      " " +
+      viewBox.y.toFixed(2) +
+      " " +
+      viewBox.w.toFixed(2) +
+      " " +
+      viewBox.h.toFixed(2)
+    );
+  }
+
+  function zoomProfileViewBox(viewBox, contentWidth, contentHeight, stageRect, clientX, clientY, deltaY) {
+    const vb = viewBox || { x: 0, y: 0, w: contentWidth, h: contentHeight };
+    const factor = deltaY > 0 ? 1.12 : 0.88;
+    const newW = vb.w * factor;
+    const newH = vb.h * factor;
+    const rx = stageRect.width > 0 ? (clientX - stageRect.left) / stageRect.width : 0.5;
+    const ry = stageRect.height > 0 ? (clientY - stageRect.top) / stageRect.height : 0.5;
+    const worldX = vb.x + rx * vb.w;
+    const worldY = vb.y + ry * vb.h;
+    return clampProfileViewBox(
       {
-        className: "fp-terrain-sparkline fp-terrain-sparkline--wide",
-        viewBox: "0 0 " + width + " " + height,
-        width: width,
-        height: height,
-        role: "img",
-        "aria-label": "地形剖面预览"
+        x: worldX - rx * newW,
+        y: worldY - ry * newH,
+        w: newW,
+        h: newH
       },
-      e("path", {
-        className: "fp-terrain-sparkline-ground",
-        d: groundPath + " L" + xAt(pts.length - 1).toFixed(1) + " " + yAt(minY).toFixed(1) + " Z"
-      }),
-      flightSegments
+      contentWidth,
+      contentHeight
+    );
+  }
+
+  function panProfileViewBox(viewBox, contentWidth, contentHeight, stageRect, deltaX, deltaY) {
+    const vb = viewBox || { x: 0, y: 0, w: contentWidth, h: contentHeight };
+    const scaleX = stageRect.width > 0 ? vb.w / stageRect.width : 1;
+    const scaleY = stageRect.height > 0 ? vb.h / stageRect.height : 1;
+    return clampProfileViewBox(
+      {
+        x: vb.x - deltaX * scaleX,
+        y: vb.y - deltaY * scaleY,
+        w: vb.w,
+        h: vb.h
+      },
+      contentWidth,
+      contentHeight
     );
   }
 
@@ -3038,19 +3649,163 @@
     );
   }
 
-  function computeWaypointPreviewFlightZ(wp, terrainZ, homeTerrain, MM) {
+  function resolveAbsolutePreviewFlightZ(alt, terrainRef) {
+    const absoluteAlt = Number(alt) || 0;
+    const terrain =
+      terrainRef != null && Number.isFinite(Number(terrainRef)) ? Number(terrainRef) : null;
+    if (terrain != null && absoluteAlt < terrain - 5) {
+      return terrain;
+    }
+    return absoluteAlt;
+  }
+
+  function effectivePreviewPointAlt(point, fallbackAlt) {
+    const override = point && Number(point.aglOverride);
+    if (Number.isFinite(override)) {
+      return override;
+    }
+    return Number(point && point.alt != null ? point.alt : fallbackAlt) || 0;
+  }
+
+  function interpolateSegmentAgl(from, to, ratio, fallbackAlt) {
+    const startAgl = effectivePreviewPointAlt(from, fallbackAlt);
+    const endAgl = effectivePreviewPointAlt(to, fallbackAlt);
+    return startAgl + (endAgl - startAgl) * ratio;
+  }
+
+  function computeWaypointPreviewFlightZ(wp, terrainZ, homeTerrain, MM, fallbackAlt) {
     if (!wp) {
       return 0;
     }
-    const alt = Number(wp.alt) || 0;
-    const frame = wp.frame;
+    const alt = effectivePreviewPointAlt(wp, fallbackAlt);
+    const frame = normalizePreviewFrame(wp.frame);
+    const terrainRef = homeTerrain != null ? homeTerrain : terrainZ;
     if (frame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT) {
       return terrainZ + alt;
     }
     if (isRelativeAltPreviewFrame(frame, MM)) {
       return (homeTerrain != null ? homeTerrain : terrainZ) + alt;
     }
-    return alt;
+    return resolveAbsolutePreviewFlightZ(alt, terrainRef);
+  }
+
+  function previewWaypointsColocated(a, b, maxDistM) {
+    if (!a || !b) {
+      return false;
+    }
+    const limit = Number.isFinite(Number(maxDistM)) ? Number(maxDistM) : 15;
+    return (
+      distanceMetersBetween(
+        { lat: Number(a.lat), lng: Number(a.lng) },
+        { lat: Number(b.lat), lng: Number(b.lng) }
+      ) <= limit
+    );
+  }
+
+  function previewWaypointsSameAltitude(a, b) {
+    if (!a || !b) {
+      return false;
+    }
+    return Math.abs((Number(a.alt) || 0) - (Number(b.alt) || 0)) < 0.5;
+  }
+
+  function findPreviewHomeAnchorWaypoint(missionWaypoints) {
+    const MM = window.MissionModel;
+    const AP = window.ArdupilotMissionCompat;
+    const list = missionWaypoints || [];
+    for (let i = 0; i < list.length; i += 1) {
+      const wp = list[i];
+      if (!wp || wp.source === "camera") {
+        continue;
+      }
+      if (
+        MM &&
+        wp.command === MM.MAV_CMD.NAV_WAYPOINT &&
+        (wp.frame === 0 || (AP && wp.frame === AP.MAV_FRAME_GLOBAL))
+      ) {
+        return wp;
+      }
+      return wp;
+    }
+    return null;
+  }
+
+  function resolvePreviewHome(missionWaypoints, fallback) {
+    const AP = window.ArdupilotMissionCompat;
+    const MM = window.MissionModel;
+    const fb =
+      fallback ||
+      (MM && MM.getFlightPlanHomeLatLng
+        ? MM.getFlightPlanHomeLatLng()
+        : {
+            lat: window.DEFAULT_MAP_LAT || 29.59256,
+            lng: window.DEFAULT_MAP_LON || 106.22742,
+            alt: 30,
+            source: "default"
+          });
+    if (MM && MM.hasFlightPlanVehiclePosition && MM.hasFlightPlanVehiclePosition()) {
+      return MM.getFlightPlanHomeLatLng();
+    }
+    const anchor = findPreviewHomeAnchorWaypoint(missionWaypoints);
+    if (AP && typeof AP.getMissionFileHome === "function") {
+      const fileHome = AP.getMissionFileHome();
+      if (
+        fileHome &&
+        Number.isFinite(Number(fileHome.lat)) &&
+        Number.isFinite(Number(fileHome.lng))
+      ) {
+        const resolved = {
+          lat: Number(fileHome.lat),
+          lng: Number(fileHome.lng),
+          alt: Number(fileHome.alt) || 0,
+          frame: fileHome.frame,
+          source: "file"
+        };
+        if (anchor && previewWaypointsColocated(resolved, anchor)) {
+          return {
+            lat: Number(anchor.lat),
+            lng: Number(anchor.lng),
+            alt: Number(anchor.alt) || 0,
+            frame: resolved.frame,
+            source: "file"
+          };
+        }
+        return resolved;
+      }
+    }
+    if (
+      anchor &&
+      Number.isFinite(Number(anchor.lat)) &&
+      Number.isFinite(Number(anchor.lng))
+    ) {
+      return {
+        lat: Number(anchor.lat),
+        lng: Number(anchor.lng),
+        alt: Number(anchor.alt) || 0,
+        frame: anchor.frame != null ? anchor.frame : 0,
+        source: "waypoint"
+      };
+    }
+    return fb;
+  }
+
+  function resolvePreviewHomeTerrain(homeTerrain, home) {
+    if (homeTerrain != null && Number.isFinite(Number(homeTerrain))) {
+      return Number(homeTerrain);
+    }
+    const AP = window.ArdupilotMissionCompat;
+    const fileHome = AP && AP.getMissionFileHome ? AP.getMissionFileHome() : null;
+    if (
+      fileHome &&
+      (fileHome.frame === 0 || fileHome.frame === AP.MAV_FRAME_GLOBAL) &&
+      Number.isFinite(Number(fileHome.alt))
+    ) {
+      return Number(fileHome.alt);
+    }
+    if (home && Number.isFinite(Number(home.alt)) && home.source === "file") {
+      return Number(home.alt);
+    }
+    return null;
   }
 
   function computePreviewFlightZ(interpolatedAlt, segmentFrame, terrainZ, homeTerrain, MM) {
@@ -3147,7 +3902,10 @@
     return {
       lat: Number(point.lat),
       lng: Number(point.lng),
-      alt: Number(point.alt != null ? point.alt : fallbackAlt) || 0,
+      alt: effectivePreviewPointAlt(point, fallbackAlt),
+      aglOverride: Number.isFinite(Number(point && point.aglOverride))
+        ? Number(point.aglOverride)
+        : undefined,
       frame: point.frame,
       source: point.source || "survey",
       command: point.command,
@@ -3186,22 +3944,52 @@
     };
   }
 
+  function isSurveyLikePreviewWaypoint(wp) {
+    if (!wp) {
+      return false;
+    }
+    if (wp.source === "survey" || wp.source === "connector") {
+      return true;
+    }
+    if (wp.blockId) {
+      return true;
+    }
+    if (wp.segmentRole || wp.pathRole) {
+      return true;
+    }
+    return false;
+  }
+
+  function isPreviewWorkSegment(segment) {
+    if (!segment) {
+      return false;
+    }
+    const type = segment.type || "";
+    if (type === "survey") {
+      return true;
+    }
+    if (type === "connector" && segment.blockId) {
+      return true;
+    }
+    return false;
+  }
+
   function classifyPreviewSegmentType(a, b) {
     const MM = window.MissionModel;
     if (MM && b && b.command === MM.MAV_CMD.NAV_RETURN_TO_LAUNCH) {
       return "rtl";
     }
-    if (a && b && a.source === "survey" && b.source === "survey") {
+    if (a && b && isSurveyLikePreviewWaypoint(a) && isSurveyLikePreviewWaypoint(b)) {
       if (isSurveyConnectorSegment(a, b)) {
         return "connector";
       }
       return "survey";
     }
     if (
+      isSurveyLikePreviewWaypoint(a) ||
+      isSurveyLikePreviewWaypoint(b) ||
       (a && a.source === "connector") ||
-      (b && b.source === "connector") ||
-      (a && a.source === "survey") ||
-      (b && b.source === "survey")
+      (b && b.source === "connector")
     ) {
       return "connector";
     }
@@ -3223,6 +4011,7 @@
   }
 
   function buildMissionPreviewSegments(waypoints, settings, home) {
+    const MM = window.MissionModel;
     const list = (waypoints || []).filter(function (wp) {
       return wp && wp.source !== "camera";
     });
@@ -3235,11 +4024,27 @@
       if (!pa || !pb) {
         continue;
       }
+      const surveyLikeLeg =
+        isSurveyLikePreviewWaypoint(a) || isSurveyLikePreviewWaypoint(b);
+      const terrainFrameOverride =
+        MM &&
+        (settings.useTerrainFollowing ||
+          normalizePreviewFrame(a.frame) === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT ||
+          normalizePreviewFrame(b.frame) === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT) &&
+        surveyLikeLeg
+          ? { frame: MM.MAV_FRAME_GLOBAL_TERRAIN_ALT }
+          : null;
       segments.push({
         id: "mission-" + i,
         type: classifyPreviewSegmentType(a, b),
-        from: normalizePreviewPoint(Object.assign({}, a, pa), settings.surveyAltitude),
-        to: normalizePreviewPoint(Object.assign({}, b, pb), settings.surveyAltitude),
+        from: normalizePreviewPoint(
+          Object.assign({}, a, pa, terrainFrameOverride || {}),
+          settings.surveyAltitude
+        ),
+        to: normalizePreviewPoint(
+          Object.assign({}, b, pb, terrainFrameOverride || {}),
+          settings.surveyAltitude
+        ),
         blockId: a.blockId || b.blockId || "",
         ribbonWidth: Math.max(12, Number(settings.lineSpacingMeters) || computeLineSpacingMeters(
           settings.sideOverlap,
@@ -3273,11 +4078,18 @@
     if (!homePoint || !firstCoords) {
       return null;
     }
+    const firstPoint = normalizePreviewPoint(
+      Object.assign({}, firstWaypoint, firstCoords),
+      settings.surveyAltitude
+    );
+    if (previewWaypointsColocated(homePoint, firstPoint, 3)) {
+      return null;
+    }
     return {
       id: "mission-home",
       type: "other",
       from: homePoint,
-      to: normalizePreviewPoint(Object.assign({}, firstWaypoint, firstCoords), settings.surveyAltitude),
+      to: firstPoint,
       blockId: "",
       ribbonWidth: 12
     };
@@ -3403,35 +4215,277 @@
     return bestIndex;
   }
 
-  function sampleTerrainFromProfile(profile, fromPoint, toPoint, ratio) {
-    if (!Array.isArray(profile) || profile.length === 0) {
+  function extractProfileSampleFields(raw) {
+    if (!raw) {
       return null;
     }
-    const startIndex = findNearestProfileIndex(profile, fromPoint);
-    const endIndex = findNearestProfileIndex(profile, toPoint);
-    if (startIndex < 0 || endIndex < 0) {
+    const elevation =
+      raw.elevation != null && Number.isFinite(Number(raw.elevation))
+        ? Number(raw.elevation)
+        : null;
+    const aglOverride =
+      raw.aglOverride != null && Number.isFinite(Number(raw.aglOverride))
+        ? Number(raw.aglOverride)
+        : null;
+    const targetAbsAlt =
+      raw.targetAbsAlt != null && Number.isFinite(Number(raw.targetAbsAlt))
+        ? Number(raw.targetAbsAlt)
+        : null;
+    if (elevation == null && aglOverride == null && targetAbsAlt == null) {
       return null;
     }
-    const targetIndex = Math.round(startIndex + (endIndex - startIndex) * ratio);
-    const lo = Math.max(0, Math.min(startIndex, endIndex, targetIndex) - 2);
-    const hi = Math.min(
-      profile.length - 1,
-      Math.max(startIndex, endIndex, targetIndex) + 2
-    );
-    for (let i = lo; i <= hi; i += 1) {
-      const sample = profile[i];
+    return {
+      elevation: elevation,
+      aglOverride: aglOverride,
+      targetAbsAlt: targetAbsAlt,
+      available: raw.available !== false
+    };
+  }
+
+  function blendProfileSampleFields(a, b, ratio) {
+    if (!a) {
+      return b;
+    }
+    if (!b) {
+      return a;
+    }
+    const t = Math.max(0, Math.min(1, Number(ratio) || 0));
+    function blend(key) {
+      const av = a[key];
+      const bv = b[key];
+      if (av == null && bv == null) {
+        return null;
+      }
+      if (av == null) {
+        return bv;
+      }
+      if (bv == null) {
+        return av;
+      }
+      return av + (bv - av) * t;
+    }
+    return {
+      elevation: blend("elevation"),
+      aglOverride: blend("aglOverride"),
+      targetAbsAlt: blend("targetAbsAlt"),
+      available: a.available !== false && b.available !== false
+    };
+  }
+
+  function sampleProfileAtGeoPoint(profile, point) {
+    if (!Array.isArray(profile) || profile.length === 0 || !point) {
+      return null;
+    }
+    if (profile.length === 1) {
+      return extractProfileSampleFields(profile[0]);
+    }
+
+    let bestDist = Infinity;
+    let bestSample = null;
+    for (let i = 0; i < profile.length - 1; i += 1) {
+      const a = profile[i];
+      const b = profile[i + 1];
+      if (!a || !b) {
+        continue;
+      }
+      const aLat = Number(a.lat);
+      const aLng = Number(a.lng);
+      const bLat = Number(b.lat);
+      const bLng = Number(b.lng);
       if (
-        sample &&
-        sample.elevation != null &&
-        Number.isFinite(Number(sample.elevation))
+        !Number.isFinite(aLat) ||
+        !Number.isFinite(aLng) ||
+        !Number.isFinite(bLat) ||
+        !Number.isFinite(bLng)
       ) {
-        return {
-          elevation: Number(sample.elevation),
-          available: sample.available !== false
-        };
+        continue;
+      }
+      const segStart = { lat: aLat, lng: aLng };
+      const segEnd = { lat: bLat, lng: bLng };
+      const segLen = distanceMetersBetween(segStart, segEnd);
+      if (segLen <= 0.5) {
+        const dist = distanceMetersBetween(point, segStart);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestSample = extractProfileSampleFields(a);
+        }
+        continue;
+      }
+      let bestSegDist = Infinity;
+      let bestRatio = 0;
+      for (let step = 0; step <= 12; step += 1) {
+        const ratio = step / 12;
+        const probe = pointOnSegment(segStart, segEnd, ratio);
+        const dist = distanceMetersBetween(point, probe);
+        if (dist < bestSegDist) {
+          bestSegDist = dist;
+          bestRatio = ratio;
+        }
+      }
+      if (bestSegDist < bestDist) {
+        bestDist = bestSegDist;
+        bestSample = blendProfileSampleFields(
+          extractProfileSampleFields(a),
+          extractProfileSampleFields(b),
+          bestRatio
+        );
       }
     }
-    return null;
+
+    if (bestSample) {
+      return bestSample;
+    }
+    const idx = findNearestProfileIndex(profile, point);
+    return idx >= 0 ? extractProfileSampleFields(profile[idx]) : null;
+  }
+
+  function normalizePreviewFrame(frame) {
+    const n = Number(frame);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function missionUsesTerrainFollowFrame(waypoints, MM) {
+    if (!MM || !waypoints || !waypoints.length) {
+      return false;
+    }
+    return waypoints.some(function (wp) {
+      if (!wp || wp.source === "camera") {
+        return false;
+      }
+      return normalizePreviewFrame(wp.frame) === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT;
+    });
+  }
+
+  function resolvePreviewTerrainSettings(settings, waypoints, surveyBlocks) {
+    const MM = window.MissionModel;
+    const base = Object.assign({}, settings || normalizeMissionSettings());
+    if (base.useTerrainFollowing) {
+      return base;
+    }
+    if (missionUsesTerrainFollowFrame(waypoints, MM)) {
+      return Object.assign({}, base, { useTerrainFollowing: true });
+    }
+    if (
+      (surveyBlocks || []).some(function (block) {
+        return block && block.paramsSnapshot && block.paramsSnapshot.useTerrainFollowing;
+      })
+    ) {
+      return Object.assign({}, base, { useTerrainFollowing: true });
+    }
+    if (
+      (surveyBlocks || []).some(function (block) {
+        return (
+          block &&
+          ((Array.isArray(block.storedProfile) && block.storedProfile.length >= 2) ||
+            (Array.isArray(block.previewProfile) && block.previewProfile.length >= 2))
+        );
+      }) &&
+      (waypoints || []).some(function (wp) {
+        return isSurveyLikePreviewWaypoint(wp);
+      })
+    ) {
+      return Object.assign({}, base, { useTerrainFollowing: true });
+    }
+    return base;
+  }
+
+  function isTerrainFollowPreviewSegment(segment, settings, MM) {
+    if (!segment || !MM) {
+      return false;
+    }
+    const fromFrame = normalizePreviewFrame(segment.from && segment.from.frame);
+    const toFrame = normalizePreviewFrame(segment.to && segment.to.frame);
+    if (
+      fromFrame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT ||
+      toFrame === MM.MAV_FRAME_GLOBAL_TERRAIN_ALT
+    ) {
+      return true;
+    }
+    if (!settings || !settings.useTerrainFollowing) {
+      return false;
+    }
+    const type = segment.type || "";
+    if (type === "rtl") {
+      return false;
+    }
+    if (segment.from && segment.from.source === "home") {
+      return false;
+    }
+    if (type === "other" && !segment.blockId) {
+      return false;
+    }
+    if (type === "survey" || type === "connector") {
+      return true;
+    }
+    if (segment.blockId) {
+      return true;
+    }
+    return (
+      isSurveyLikePreviewWaypoint(segment.from) ||
+      isSurveyLikePreviewWaypoint(segment.to)
+    );
+  }
+
+  function sampleTerrainFromProfile(profile, point) {
+    const sample = sampleProfileAtGeoPoint(profile, point);
+    if (!sample || sample.elevation == null) {
+      return null;
+    }
+    return {
+      elevation: sample.elevation,
+      available: sample.available !== false
+    };
+  }
+
+  function computePreviewSampleFlightZ(options) {
+    const sample = options.sample;
+    const ratio = options.ratio;
+    const segment = options.segment;
+    const segmentProfile = options.segmentProfile;
+    const settings = options.settings;
+    const homeTerrain = options.homeTerrain;
+    const MM = options.MM;
+    const fallbackAlt = Number(settings && settings.surveyAltitude) || 0;
+    const profileSample = segmentProfile
+      ? sampleProfileAtGeoPoint(segmentProfile, { lat: sample.lat, lng: sample.lng })
+      : null;
+    const terrainFollow = isTerrainFollowPreviewSegment(segment, settings, MM);
+
+    if (terrainFollow) {
+      let agl = interpolateSegmentAgl(segment.from, segment.to, ratio, fallbackAlt);
+      if (
+        profileSample &&
+        profileSample.aglOverride != null &&
+        Number.isFinite(profileSample.aglOverride)
+      ) {
+        agl = profileSample.aglOverride;
+      }
+      return sample.terrainZ + agl;
+    }
+
+    const segmentFrame = segment.from && segment.from.frame;
+    if (isRelativeAltPreviewFrame(segmentFrame, MM)) {
+      const agl = interpolateSegmentAgl(segment.from, segment.to, ratio, fallbackAlt);
+      return (homeTerrain != null ? homeTerrain : sample.terrainZ) + agl;
+    }
+
+    const startTerrainZ = options.startTerrainZ;
+    const endTerrainZ = options.endTerrainZ;
+    const startFlightZ = computeWaypointPreviewFlightZ(
+      segment.from,
+      startTerrainZ,
+      homeTerrain,
+      MM,
+      fallbackAlt
+    );
+    const endFlightZ = computeWaypointPreviewFlightZ(
+      segment.to,
+      endTerrainZ,
+      homeTerrain,
+      MM,
+      fallbackAlt
+    );
+    return startFlightZ + (endFlightZ - startFlightZ) * ratio;
   }
 
   function buildPreviewSummary(data) {
@@ -3443,7 +4497,9 @@
       flightMin: null,
       flightMax: null,
       aglMin: null,
-      aglMax: null
+      aglMax: null,
+      workAglMin: null,
+      workAglMax: null
     };
     if (!data || !data.segments) {
       return summary;
@@ -3454,6 +4510,7 @@
         ? Number(data.missionWaypointCount)
         : 0;
     data.segments.forEach(function (segment) {
+      const workSegment = isPreviewWorkSegment(segment);
       (segment.samples || []).forEach(function (sample) {
         if (sample.terrainZ != null && Number.isFinite(sample.terrainZ)) {
           summary.terrainMin =
@@ -3472,6 +4529,12 @@
             summary.aglMin == null ? sample.agl : Math.min(summary.aglMin, sample.agl);
           summary.aglMax =
             summary.aglMax == null ? sample.agl : Math.max(summary.aglMax, sample.agl);
+          if (workSegment) {
+            summary.workAglMin =
+              summary.workAglMin == null ? sample.agl : Math.min(summary.workAglMin, sample.agl);
+            summary.workAglMax =
+              summary.workAglMax == null ? sample.agl : Math.max(summary.workAglMax, sample.agl);
+          }
         }
       });
     });
@@ -3508,7 +4571,11 @@
 
   function prepareFlightPlanPreviewData(options) {
     const opts = options || {};
-    const settings = opts.settings || normalizeMissionSettings();
+    const settings = resolvePreviewTerrainSettings(
+      opts.settings || normalizeMissionSettings(),
+      opts.missionWaypoints,
+      opts.surveyBlocks
+    );
     const home = opts.home || { lat: 0, lng: 0, alt: 0 };
     const mode = opts.mode || "mission";
     const terrainProfileLookup = buildTerrainProfileLookup(
@@ -3570,41 +4637,35 @@
       return null;
     }
 
-    return sampleHomeTerrain().then(function (homeTerrain) {
+    return sampleHomeTerrain().then(function (homeTerrainRaw) {
+      const homeTerrain = resolvePreviewHomeTerrain(homeTerrainRaw, home);
       return Promise.all(
         rawSegments.map(function (segment) {
           const densePoints = buildPreviewResampledPoints(segment.from, segment.to, step);
           const segmentProfile = resolveSegmentProfile(segment);
           const shouldSampleTerrain =
-            !(segmentProfile && segmentProfile.length >= 2) &&
-            TS &&
-            typeof TS.sampleElevationBatch === "function";
-          const terrainPromise =
-            shouldSampleTerrain
-                ? TS.sampleElevationBatch(
-                    densePoints.map(function (p) {
-                      return { lat: p.lat, lng: p.lng };
-                    })
-                  ).catch(function () {
-                    return [];
-                  })
-                : Promise.resolve([]);
+            TS && typeof TS.sampleElevationBatch === "function";
+          const terrainPromise = shouldSampleTerrain
+            ? TS.sampleElevationBatch(
+                densePoints.map(function (p) {
+                  return { lat: p.lat, lng: p.lng };
+                })
+              ).catch(function () {
+                return [];
+              })
+            : Promise.resolve([]);
 
           return terrainPromise.then(function (terrainSamples) {
             const samples = densePoints.map(function (point, index) {
               let terrain = terrainSamples[index] || {};
-              const ratio = densePoints.length <= 1 ? 0 : index / (densePoints.length - 1);
               if (
-                (!terrain || terrain.elevation == null || !Number.isFinite(Number(terrain.elevation))) &&
+                (!terrain ||
+                  terrain.elevation == null ||
+                  !Number.isFinite(Number(terrain.elevation))) &&
                 segmentProfile
               ) {
                 terrain =
-                  sampleTerrainFromProfile(
-                    segmentProfile,
-                    segment.from,
-                    segment.to,
-                    ratio
-                  ) || terrain;
+                  sampleTerrainFromProfile(segmentProfile, point) || terrain;
               }
               const terrainZ =
                 terrain && terrain.elevation != null && Number.isFinite(Number(terrain.elevation))
@@ -3639,21 +4700,21 @@
               };
             });
             if (samples.length) {
-              const startFlightZ = computeWaypointPreviewFlightZ(
-                segment.from,
-                samples[0].terrainZ,
-                homeTerrain,
-                MM
-              );
-              const endFlightZ = computeWaypointPreviewFlightZ(
-                segment.to,
-                samples[samples.length - 1].terrainZ,
-                homeTerrain,
-                MM
-              );
+              const startTerrainZ = samples[0].terrainZ;
+              const endTerrainZ = samples[samples.length - 1].terrainZ;
               samples.forEach(function (sample, index) {
                 const ratio = samples.length <= 1 ? 0 : index / (samples.length - 1);
-                sample.flightZ = startFlightZ + (endFlightZ - startFlightZ) * ratio;
+                sample.flightZ = computePreviewSampleFlightZ({
+                  sample: sample,
+                  ratio: ratio,
+                  segment: segment,
+                  segmentProfile: segmentProfile,
+                  settings: settings,
+                  homeTerrain: homeTerrain,
+                  MM: MM,
+                  startTerrainZ: startTerrainZ,
+                  endTerrainZ: endTerrainZ
+                });
                 sample.agl = Math.max(0, sample.flightZ - sample.terrainZ);
               });
             }
@@ -3672,13 +4733,34 @@
           segments: segments,
           missionWaypointCount: missionWaypointCount
         });
+        let previewNotice = segments.some(function (segment) {
+          return !segment.terrainAvailable;
+        })
+          ? "部分地形高程缺失，已降级显示航线/参考地表。"
+          : "";
+        const aglSpread =
+          summary.workAglMin != null && summary.workAglMax != null
+            ? summary.workAglMax - summary.workAglMin
+            : summary.aglMin != null && summary.aglMax != null
+              ? summary.aglMax - summary.aglMin
+              : 0;
+        const terrainSpread =
+          summary.terrainMin != null && summary.terrainMax != null
+            ? summary.terrainMax - summary.terrainMin
+            : 0;
+        if (
+          settings.useTerrainFollowing &&
+          summary.workAglMin != null &&
+          aglSpread > Math.max(80, terrainSpread * 0.35) &&
+          !missionUsesTerrainFollowFrame(opts.missionWaypoints, MM)
+        ) {
+          previewNotice =
+            (previewNotice ? previewNotice + " " : "") +
+            "测绘航点未使用地形高度帧（frame 10），预览按相对高度显示；重新提交地形测绘任务后可修正。";
+        }
         return {
           ok: true,
-          error: segments.some(function (segment) {
-            return !segment.terrainAvailable;
-          })
-            ? "部分地形高程缺失，已降级显示航线/参考地表。"
-            : "",
+          error: previewNotice,
           data: {
             mode: mode,
             platform: opts.platform || settings.platform || null,
@@ -3847,6 +4929,11 @@
     const [preview3dShowTerrain, setPreview3dShowTerrain] = useState(true);
     const [preview3dShowConnectors, setPreview3dShowConnectors] = useState(true);
     const [preview3dShowVerticals, setPreview3dShowVerticals] = useState(true);
+    const [profilePreview, setProfilePreview] = useState(null);
+    const [profileViewBox, setProfileViewBox] = useState(null);
+    const [profileProbeT, setProfileProbeT] = useState(0.5);
+    const profilePointerRef = useRef({ active: false, mode: "pan", x: 0, y: 0 });
+    const profileStageRef = useRef(null);
     const cesiumPreviewEnabled =
       !!(window.Cesium && window.FlightPlanPreviewCesium) && preview3dCesiumHealthy;
     const [demPreviewHeadingDeg, setDemPreviewHeadingDeg] = useState(null);
@@ -4633,18 +5720,83 @@
     const onSurveyVertexDeletedRef = useRef(null);
     const onSurveyVertexInsertedRef = useRef(null);
 
+    const vehicleHomeTerrainCacheRef = useRef({
+      lat: null,
+      lng: null,
+      elev: null,
+      pending: false,
+      lastSampleMs: 0
+    });
+
+    const refreshVehicleHomeTerrainCache = useCallback(function () {
+      const MM = window.MissionModel;
+      if (!MM || !MM.hasFlightPlanVehiclePosition || !MM.hasFlightPlanVehiclePosition()) {
+        return Promise.resolve(null);
+      }
+      const lat = Number(window.lat);
+      const lng = Number(window.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return Promise.resolve(null);
+      }
+      const cache = vehicleHomeTerrainCacheRef.current;
+      const now = Date.now();
+      if (
+        cache.lat === lat &&
+        cache.lng === lng &&
+        cache.elev != null &&
+        now - cache.lastSampleMs < 30000
+      ) {
+        window._gcsVehicleHomeTerrainMsl = cache.elev;
+        return Promise.resolve(cache.elev);
+      }
+      if (cache.pending || now - cache.lastSampleMs < 2000) {
+        return Promise.resolve(cache.elev);
+      }
+      const TS = window.TerrainService;
+      if (!TS || typeof TS.sampleElevationBatch !== "function") {
+        return Promise.resolve(null);
+      }
+      cache.pending = true;
+      return TS.sampleElevationBatch([{ lat: lat, lng: lng }])
+        .then(function (points) {
+          cache.pending = false;
+          cache.lastSampleMs = Date.now();
+          const first = points && points[0];
+          const elev =
+            first && first.elevation != null && Number.isFinite(Number(first.elevation))
+              ? Number(first.elevation)
+              : null;
+          if (elev != null) {
+            cache.lat = lat;
+            cache.lng = lng;
+            cache.elev = elev;
+            window._gcsVehicleHomeTerrainMsl = elev;
+          }
+          return elev;
+        })
+        .catch(function () {
+          cache.pending = false;
+          cache.lastSampleMs = Date.now();
+          return null;
+        });
+    }, []);
+
     const applyTakeoffVehicleSync = useCallback(function () {
       const VT = window.VehicleTemplates;
       if (!VT || window._gcsConnState !== "connected") {
         return;
       }
-      setMissionWaypoints(function (prev) {
-        if (!prev.length) {
-          return prev;
-        }
-        return VT.syncTakeoffFromVehicle(prev, true);
+      refreshVehicleHomeTerrainCache().finally(function () {
+        setMissionWaypoints(function (prev) {
+          if (!prev.length) {
+            return prev;
+          }
+          const sync =
+            VT.syncMissionHomeAnchorsFromVehicle || VT.syncTakeoffFromVehicle;
+          return sync(prev, true);
+        });
       });
-    }, []);
+    }, [refreshVehicleHomeTerrainCache]);
 
     useEffect(function () {
       syncTakeoffToVehicleRef.current = applyTakeoffVehicleSync;
@@ -5883,7 +7035,9 @@
               if (!prev.length) {
                 return prev;
               }
-              return VT.syncTakeoffFromVehicle(prev, true);
+              const sync =
+                VT.syncMissionHomeAnchorsFromVehicle || VT.syncTakeoffFromVehicle;
+              return sync(prev, true);
             });
           }
         } else if (VT) {
@@ -5894,7 +7048,9 @@
             if (!prev.length) {
               return prev;
             }
-            return VT.syncTakeoffFromVehicle(prev, false);
+            const sync =
+              VT.syncMissionHomeAnchorsFromVehicle || VT.syncTakeoffFromVehicle;
+            return sync(prev, false);
           });
         }
       }
@@ -6381,16 +7537,95 @@
       }
     }, []);
 
+    const closeProfilePreview = useCallback(function () {
+      setProfilePreview(null);
+      setProfileViewBox(null);
+      setProfileProbeT(0.5);
+      profilePointerRef.current = { active: false, mode: "pan", x: 0, y: 0 };
+    }, []);
+
+    const openProfilePreview = useCallback(function (payload) {
+      if (!payload || !payload.profile || payload.profile.length < 2) {
+        return;
+      }
+      const paths = buildTerrainProfileSparklinePaths(
+        payload.profile,
+        payload.settings || settings,
+        resolvedPlatform,
+        { width: 960, height: 220, pad: 8 }
+      );
+      if (!paths) {
+        return;
+      }
+      setProfilePreview(payload);
+      setProfileViewBox({
+        x: 0,
+        y: 0,
+        w: paths.contentWidth,
+        h: paths.contentHeight
+      });
+      setProfileProbeT(0.5);
+      profilePointerRef.current = { active: false, mode: "pan", x: 0, y: 0 };
+    }, [resolvedPlatform, settings]);
+
+    useEffect(
+      function () {
+        if (!profilePreview) {
+          return;
+        }
+        function onKeyDown(event) {
+          if (event.key === "Escape") {
+            closeProfilePreview();
+          }
+        }
+        function endProfilePointer() {
+          profilePointerRef.current = { active: false, mode: "pan", x: 0, y: 0 };
+          if (profileStageRef.current) {
+            profileStageRef.current.classList.remove("is-dragging");
+            profileStageRef.current.classList.remove("is-probe-dragging");
+          }
+        }
+        document.addEventListener("keydown", onKeyDown, true);
+        window.addEventListener("pointerup", endProfilePointer);
+        window.addEventListener("pointercancel", endProfilePointer);
+        return function () {
+          document.removeEventListener("keydown", onKeyDown, true);
+          window.removeEventListener("pointerup", endProfilePointer);
+          window.removeEventListener("pointercancel", endProfilePointer);
+        };
+      },
+      [profilePreview, closeProfilePreview]
+    );
+
+    const resetProfileViewBox = useCallback(function () {
+      if (!profilePreview) {
+        return;
+      }
+      const paths = buildTerrainProfileSparklinePaths(
+        profilePreview.profile,
+        profilePreview.settings || settings,
+        resolvedPlatform,
+        { width: 960, height: 220, pad: 8 }
+      );
+      if (!paths) {
+        return;
+      }
+      setProfileViewBox({
+        x: 0,
+        y: 0,
+        w: paths.contentWidth,
+        h: paths.contentHeight
+      });
+      setProfileProbeT(0.5);
+      profilePointerRef.current = { active: false, mode: "pan", x: 0, y: 0 };
+    }, [profilePreview, resolvedPlatform, settings]);
+
     const open3dPreview = useCallback(function (mode) {
       const MM = window.MissionModel;
-      const home =
-        MM && MM.getFlightPlanHomeLatLng
-          ? MM.getFlightPlanHomeLatLng()
-          : {
-              lat: window.DEFAULT_MAP_LAT || 29.59256,
-              lng: window.DEFAULT_MAP_LON || 106.22742,
-              alt: 30
-            };
+      const home = resolvePreviewHome(
+        missionWaypoints,
+        MM && MM.getFlightPlanHomeLatLng ? MM.getFlightPlanHomeLatLng() : null
+      );
       setPreview3dMode(mode);
       setPreview3dView("iso");
       setPreview3dError("");
@@ -7324,6 +8559,262 @@
       );
     }
 
+    function renderProfilePreviewModal() {
+      if (!profilePreview) {
+        return null;
+      }
+      const modalPaths = buildTerrainProfileSparklinePaths(
+        profilePreview.profile,
+        profilePreview.settings || settings,
+        resolvedPlatform,
+        { width: 960, height: 220, pad: 8 }
+      );
+      if (!modalPaths) {
+        return null;
+      }
+      const stats = modalPaths.stats || {};
+      const contentWidth = modalPaths.contentWidth;
+      const contentHeight = modalPaths.contentHeight;
+      const viewBox =
+        profileViewBox ||
+        ({ x: 0, y: 0, w: contentWidth, h: contentHeight });
+      const viewBoxText = formatProfileViewBox(viewBox);
+
+      function handleProfilePointerDown(event) {
+        const stageRect = profileStageRef.current
+          ? profileStageRef.current.getBoundingClientRect()
+          : { left: 0, width: contentWidth };
+        const series = modalPaths.series;
+        const nearProbe =
+          series &&
+          Math.abs(
+            event.clientX - profileProbeScreenX(profileProbeT, series, viewBox, stageRect)
+          ) <= 12;
+        profilePointerRef.current = {
+          active: true,
+          mode: nearProbe ? "probe" : "pan",
+          x: event.clientX,
+          y: event.clientY
+        };
+        if (profileStageRef.current) {
+          profileStageRef.current.classList.toggle("is-probe-dragging", nearProbe);
+          profileStageRef.current.classList.toggle("is-dragging", !nearProbe);
+        }
+        if (event.currentTarget && event.currentTarget.setPointerCapture) {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        event.preventDefault();
+      }
+
+      function handleProfilePointerMove(event) {
+        const pointer = profilePointerRef.current;
+        if (!pointer.active || !profileStageRef.current) {
+          return;
+        }
+        if (pointer.mode === "probe" && modalPaths.series) {
+          const stageRect = profileStageRef.current.getBoundingClientRect();
+          setProfileProbeT(
+            clientToProfileProbeT(event.clientX, stageRect, viewBox, modalPaths.series)
+          );
+          event.preventDefault();
+          return;
+        }
+        const dx = event.clientX - pointer.x;
+        const dy = event.clientY - pointer.y;
+        pointer.x = event.clientX;
+        pointer.y = event.clientY;
+        const stageRect = profileStageRef.current.getBoundingClientRect();
+        setProfileViewBox(function (previous) {
+          return panProfileViewBox(
+            previous || viewBox,
+            contentWidth,
+            contentHeight,
+            stageRect,
+            dx,
+            dy
+          );
+        });
+        event.preventDefault();
+      }
+
+      function handleProfilePointerUp(event) {
+        profilePointerRef.current = { active: false, mode: "pan", x: 0, y: 0 };
+        if (profileStageRef.current) {
+          profileStageRef.current.classList.remove("is-dragging");
+          profileStageRef.current.classList.remove("is-probe-dragging");
+        }
+        if (
+          event.currentTarget &&
+          event.currentTarget.releasePointerCapture &&
+          event.pointerId != null
+        ) {
+          try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      }
+
+      function handleProfileWheel(event) {
+        if (!profileStageRef.current) {
+          return;
+        }
+        const stageRect = profileStageRef.current.getBoundingClientRect();
+        setProfileViewBox(function (previous) {
+          return zoomProfileViewBox(
+            previous || viewBox,
+            contentWidth,
+            contentHeight,
+            stageRect,
+            event.clientX,
+            event.clientY,
+            event.deltaY
+          );
+        });
+        event.preventDefault();
+      }
+
+      const modalSparkline = renderTerrainProfileSparkline(e, modalPaths, {
+        className: "fp-terrain-sparkline fp-terrain-sparkline--modal",
+        viewBox: viewBoxText,
+        ariaLabel: "地形剖面放大预览",
+        probe: true,
+        probeT: profileProbeT
+      });
+
+      return e(
+        "div",
+        {
+          className: "fp-profile-modal",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": "fp-profile-modal-title",
+          onClick: function (event) {
+            if (event.target === event.currentTarget) {
+              closeProfilePreview();
+            }
+          }
+        },
+        e(
+          "div",
+          { className: "fp-profile-modal-shell" },
+          e(
+            "div",
+            { className: "fp-profile-modal-header" },
+            e(
+              "div",
+              null,
+              e(
+                "h3",
+                { id: "fp-profile-modal-title", className: "fp-profile-modal-title" },
+                "地形剖面 · ",
+                profilePreview.title || "测绘区域"
+              ),
+              e(
+                "p",
+                { className: "fp-profile-modal-subtitle" },
+                "剖面 ",
+                String(stats.pointCount || profilePreview.profile.length),
+                " 点",
+                stats.terrainMin != null && stats.terrainMax != null
+                  ? " · 地形 " +
+                    Math.round(stats.terrainMin) +
+                    "–" +
+                    Math.round(stats.terrainMax) +
+                    " m"
+                  : "",
+                stats.showIdealLine &&
+                  stats.idealAglMin != null &&
+                  stats.idealAglMax != null
+                  ? " · 理想 AGL " +
+                    Math.round(stats.idealAglMin) +
+                    "–" +
+                    Math.round(stats.idealAglMax) +
+                    " m"
+                  : stats.aglMin != null && stats.aglMax != null
+                    ? " · AGL " +
+                      Math.round(stats.aglMin) +
+                      "–" +
+                      Math.round(stats.aglMax) +
+                      " m"
+                    : "",
+                stats.showIdealLine &&
+                  stats.feasibleAglMin != null &&
+                  stats.feasibleAglMax != null
+                  ? " · 可行 AGL " +
+                    Math.round(stats.feasibleAglMin) +
+                    "–" +
+                    Math.round(stats.feasibleAglMax) +
+                    " m"
+                  : "",
+                stats.feasibleSource === "solver" ? " · 按爬升率/空速重算" : ""
+              )
+            ),
+            e(
+              "button",
+              {
+                type: "button",
+                className: "fp-profile-modal-close",
+                onClick: closeProfilePreview,
+                "aria-label": "关闭地形剖面预览"
+              },
+              "×"
+            )
+          ),
+          e(
+            "div",
+            { className: "fp-profile-modal-toolbar" },
+            e(
+              "button",
+              {
+                type: "button",
+                className: "fp-btn fp-btn--tiny",
+                onClick: resetProfileViewBox
+              },
+              "重置视图"
+            ),
+            modalPaths.showIdealLine
+              ? e(
+                  "span",
+                  { className: "fp-profile-legend" },
+                  e(
+                    "span",
+                    { className: "fp-profile-legend-item fp-profile-legend-item--ideal" },
+                    "理想"
+                  ),
+                  e(
+                    "span",
+                    { className: "fp-profile-legend-item fp-profile-legend-item--feasible" },
+                    "可行"
+                  )
+                )
+              : null,
+            e(
+              "span",
+              { className: "fp-profile-modal-hint" },
+              modalPaths.showIdealLine
+                ? "琥珀虚线=理想 · 蓝实线=可行 · 拖竖线查高度 · 空白处拖拽平移 · 滚轮缩放"
+                : "蓝实线=飞行高度 · 拖竖线查高度 · 空白处拖拽平移 · 滚轮缩放 · 红线=问题段"
+            )
+          ),
+          e(
+            "div",
+            {
+              ref: profileStageRef,
+              className: "fp-profile-modal-stage",
+              onPointerDown: handleProfilePointerDown,
+              onPointerMove: handleProfilePointerMove,
+              onPointerUp: handleProfilePointerUp,
+              onPointerLeave: handleProfilePointerUp,
+              onWheel: handleProfileWheel
+            },
+            modalSparkline
+          )
+        )
+      );
+    }
+
     function render3dPreviewModal() {
       if (!preview3dOpen) {
         return null;
@@ -7370,13 +8861,19 @@
                     Math.round(summary.terrainMax) +
                     " m"
                   : "",
-                summary.aglMin != null && summary.aglMax != null
-                  ? " · AGL " +
-                    Math.round(summary.aglMin) +
+                summary.workAglMin != null && summary.workAglMax != null
+                  ? " · 测线 AGL " +
+                    Math.round(summary.workAglMin) +
                     "–" +
-                    Math.round(summary.aglMax) +
+                    Math.round(summary.workAglMax) +
                     " m"
-                  : ""
+                  : summary.aglMin != null && summary.aglMax != null
+                    ? " · AGL " +
+                      Math.round(summary.aglMin) +
+                      "–" +
+                      Math.round(summary.aglMax) +
+                      " m"
+                    : ""
               )
             ),
             e(
@@ -7510,7 +9007,7 @@
         MM && MM.MAV_FRAME_GLOBAL_TERRAIN_ALT != null
           ? MM.MAV_FRAME_GLOBAL_TERRAIN_ALT
           : 10;
-      const tableRows = [buildHomePreviewTableRow()].concat(
+      const tableRows = [buildHomePreviewTableRow(missionWaypoints)].concat(
         missionWaypoints
           .map(function (wp, index) {
             const isSurvey =
@@ -8385,12 +9882,16 @@
                   const maxClimb = (block.previewIssues || []).some(function (i) {
                     return i.level === "error";
                   });
-                  const sparkline = createTerrainProfileSparklineElement(
-                    e,
-                    prof,
-                    settings,
-                    resolvedPlatform
-                  );
+                  const sparklineRow =
+                    prof.length >= 2
+                      ? renderTerrainProfileSparklineRow(e, {
+                          profile: prof,
+                          settings: settings,
+                          platform: resolvedPlatform,
+                          title: "块 " + (idx + 1),
+                          onExpand: openProfilePreview
+                        })
+                      : null;
                   return e(
                     "div",
                     { key: "tpb-" + idx, className: "fp-block-item-wrap" },
@@ -8415,9 +9916,7 @@
                           )
                         : null
                     ),
-                    sparkline
-                      ? e("div", { className: "fp-block-item-sparkline" }, sparkline)
-                      : null
+                    sparklineRow
                   );
                 }),
                 e(
@@ -8446,14 +9945,15 @@
                 e("div", { className: "fp-block-list-title" }, "已确认区域 (" + surveyBlocks.length + ")"),
                 surveyBlocks.map(function (block) {
                   const prof = block.storedProfile || [];
-                  const sparkline =
+                  const sparklineRow =
                     prof.length >= 2
-                      ? createTerrainProfileSparklineElement(
-                          e,
-                          prof,
-                          block.paramsSnapshot || settings,
-                          resolvedPlatform
-                        )
+                      ? renderTerrainProfileSparklineRow(e, {
+                          profile: prof,
+                          settings: block.paramsSnapshot || settings,
+                          platform: resolvedPlatform,
+                          title: "区域 " + (block.order + 1),
+                          onExpand: openProfilePreview
+                        })
                       : null;
                   return e(
                     "div",
@@ -8505,9 +10005,7 @@
                               "重算"
                             )
                     ),
-                    sparkline
-                      ? e("div", { className: "fp-block-item-sparkline" }, sparkline)
-                      : null
+                    sparklineRow
                   );
                 })
               )
@@ -9072,6 +10570,7 @@
           e("div", { ref: mapContainerRef, className: "fp-map-canvas" })
         )
       ),
+      renderProfilePreviewModal(),
       render3dPreviewModal()
     );
   }

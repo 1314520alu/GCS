@@ -502,23 +502,19 @@
         }
         const first = segment.samples[0];
         const last = segment.samples[segment.samples.length - 1];
-        [first, last].forEach(function (sample, idx) {
+        [first, last].forEach(function (sample) {
           if (!sample) {
             return;
           }
           const key =
-            sample.x.toFixed(2) +
+            Math.round((sample.lat || 0) * 1e6) +
             ":" +
-            sample.z.toFixed(2) +
-            ":" +
-            sample.flightZ.toFixed(1) +
-            ":" +
-            idx;
+            Math.round((sample.lng || 0) * 1e6);
           if (added.indexOf(key) !== -1) {
             return;
           }
           added.push(key);
-          const isKey = idx === 0 || segment.type === "rtl";
+          const isKey = segment.type === "rtl";
           const marker = new THREE.Mesh(
             isKey ? keyGeom.clone() : markerGeom.clone(),
             new THREE.MeshStandardMaterial({
